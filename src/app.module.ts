@@ -37,6 +37,7 @@ import { join } from 'path';
         autoLoadEntities: true,
         synchronize: configService.getOrThrow('DB_SYNC') === 'true',
         logging: configService.getOrThrow('DB_LOGGING') === 'true',
+        migrations: [join(__dirname, 'migrations', '*.ts')],
       }),
       inject: [ConfigService],
     }),

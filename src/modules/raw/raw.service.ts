@@ -7,30 +7,9 @@ import { ConfigService } from '@nestjs/config';
 export class RawService implements OnModuleInit {
   constructor(
     private readonly dataLoaderService: DataLoaderService,
-    private readonly configService: ConfigService,
   ) {}
 
-  dataPath = join(__dirname, '..', '..', '..', 'data');
-
   async onModuleInit() {
-    // 检查是否需要加载汉字字典数据
-    const shouldLoadKanjiDict =
-      this.configService.get<boolean>('LOAD_KANJI_DICT');
-    if (shouldLoadKanjiDict) {
-      await this.loadKanjiDict();
-    }
-
-    const shouldLoadJMDict = this.configService.get<boolean>('LOAD_JM_DICT');
-    if (shouldLoadJMDict) {
-      await this.loadJMDict();
-    }
-  }
-
-  async loadKanjiDict() {
-    await this.dataLoaderService.loadKanjiDict();
-  }
-
-  async loadJMDict() {
-    await this.dataLoaderService.loadJMDict();
+    await this.dataLoaderService.loadAllData();
   }
 }
