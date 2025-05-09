@@ -14,15 +14,23 @@ export class RawService implements OnModuleInit {
 
   async onModuleInit() {
     // 检查是否需要加载汉字字典数据
-    const shouldLoadKanjiDict = this.configService.get<boolean>('LOAD_KANJI_DICT');
+    const shouldLoadKanjiDict =
+      this.configService.get<boolean>('LOAD_KANJI_DICT');
     if (shouldLoadKanjiDict) {
       await this.loadKanjiDict();
+    }
+
+    const shouldLoadJMDict = this.configService.get<boolean>('LOAD_JM_DICT');
+    if (shouldLoadJMDict) {
+      await this.loadJMDict();
     }
   }
 
   async loadKanjiDict() {
-    await this.dataLoaderService.loadKanjiDict(
-      join(this.dataPath, 'kanji-dict', 'kanjidic2.xml'),
-    );
+    await this.dataLoaderService.loadKanjiDict();
+  }
+
+  async loadJMDict() {
+    await this.dataLoaderService.loadJMDict();
   }
 }
