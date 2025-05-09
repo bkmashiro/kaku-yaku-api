@@ -33,7 +33,7 @@ export class DataLoaderService {
       // Use batch insert for better performance
       const batchSize = 1000;
       for (let i = 0; i < kanjiDicts.length; i += batchSize) {
-        logger.log(
+        logger.debug(
           `Loading kanji dictionary: ${i + 1} of ${kanjiDicts.length}`,
         );
         const batch = kanjiDicts.slice(i, i + batchSize);
