@@ -1,0 +1,27 @@
+{
+  "name": "sudachi-native",
+  "version": "0.1.0",
+  "author": "",
+  "main": "index.js",
+  "description": "Node.js binding for Sudachi Japanese morphological analyzer",
+  "engines": {
+    "node": ">= 10"
+  },
+  "keywords": [
+    "sudachi",
+    "japanese",
+    "morphological",
+    "analyzer",
+    "tokenizer",
+    "nlp",
+    "napi-rs",
+    "rust"
+  ],
+  "license": "MIT",
+  "scripts": {
+    "build": "napi build --platform",
+    "build:debug": "napi build --platform --debug",
+    "test": "node example.js",
+    "build-dict-example": "node build-dict-example.js"
+  }
+}
