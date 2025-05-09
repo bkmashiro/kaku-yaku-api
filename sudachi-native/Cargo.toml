@@ -1,0 +1,16 @@
+[package]
+name = "sudachi-native"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+sudachi =  { git = "https://github.com/WorksApplications/sudachi.rs", branch = "develop" }
+napi = "2"
+napi-derive = "2"
+tokio = { version = "1", features = ["full"] }
+
+[build-dependencies]
+napi-build = "2"
