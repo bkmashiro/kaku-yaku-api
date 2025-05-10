@@ -9,6 +9,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { RawModule } from './modules/raw/raw.module';
 import { join } from 'path';
+import { SudachiModule } from './modules/sudachi/sudachi.module';
 
 @Module({
   imports: [
@@ -42,6 +43,7 @@ import { join } from 'path';
       inject: [ConfigService],
     }),
     RawModule,
+    SudachiModule,
   ],
   controllers: [AppController],
   providers: [AppService],

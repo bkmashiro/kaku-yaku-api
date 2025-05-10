@@ -43,7 +43,7 @@ function main() {
     console.log('分词格式 (Mode C): ' + wakati);
 
     console.log('\n===== 句子分割 =====');
-    const multiSentence = '吾輩は猫である。名前はまだ無い。どこで生まれたか頓と見当がつかぬ。';
+    const multiSentence = '君が医者になりたいと話してくれたあの瞬間、今でもはっきりと覚えている。強く言い切ったからじゃなくて、その言葉を口にしたとき、君の目がきらきらと輝いていたから。';
     const sentences = tokenizer.splitSentences(multiSentence);
     console.log('分割的句子：', sentences);
 
