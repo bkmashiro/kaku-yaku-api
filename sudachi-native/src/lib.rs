@@ -1,5 +1,6 @@
 use napi_derive::napi;
-use napi::{Error, Result, Status};
+use napi::{Error, Result, Status, Env};
+use napi::bindgen_prelude::*;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -39,16 +40,17 @@ pub enum SentenceSplitMode {
   None = 2,
 }
 
-#[napi]
+#[napi(object)]
+#[derive(Default)]
 pub struct MorphemeObject {
   pub surface: String,
-  pub dictionary_form: String,
-  pub reading_form: String,
-  pub part_of_speech: Vec<String>,
-  pub normalized_form: String,
-  pub dictionary_id: i32,
-  pub synonym_group_ids: Vec<u32>,
-  pub is_oov: bool,
+  pub dictionaryForm: String,
+  pub readingForm: String,
+  pub partOfSpeech: Vec<String>,
+  pub normalizedForm: String,
+  pub dictionaryId: i32,
+  pub synonymGroupIds: Vec<u32>,
+  pub isOov: bool,
 }
 
 #[napi]
@@ -85,7 +87,8 @@ impl SudachiTokenizer {
     text: String,
     #[napi(ts_arg_type = "SudachiMode")] mode: u32,
     #[napi(ts_arg_type = "boolean")] _print_all: bool,
-  ) -> Result<Vec<MorphemeObject>> {
+    env: Env,
+  ) -> Result<Array> {
     let mode = match mode {
       0 => Mode::A,
       1 => Mode::B,
@@ -101,23 +104,50 @@ impl SudachiTokenizer {
     let morphemes = tokenizer.tokenize(&text, mode, false)
       .map_err(|e| Error::new(Status::GenericFailure, format!("Tokenization failed: {}", e)))?;
     
-    let result = morphemes.iter()
-      .map(|m| MorphemeObject {
-        surface: m.surface().to_string(),
-        dictionary_form: m.dictionary_form().to_string(),
-        reading_form: m.reading_form().to_string(),
-        part_of_speech: m.part_of_speech().iter().map(|p| p.to_string()).collect(),
-        normalized_form: m.normalized_form().to_string(),
-        dictionary_id: m.dictionary_id(),
-        synonym_group_ids: m.synonym_group_ids().to_vec(),
-        is_oov: m.is_oov(),
-      })
-      .collect();
+    let mut array = env.create_array(morphemes.len() as u32)?;
     
-    Ok(result)
+    for (i, m) in morphemes.iter().enumerate() {
+      let mut obj = env.create_object()?;
+      
+      let surface = env.create_string(&m.surface())?;
+      obj.set_named_property("surface", surface)?;
+      
+      let dict_form = env.create_string(m.dictionary_form())?;
+      obj.set_named_property("dictionaryForm", dict_form)?;
+      
+      let reading = env.create_string(m.reading_form())?;
+      obj.set_named_property("readingForm", reading)?;
+      
+      let mut part_of_speech_arr = env.create_array(m.part_of_speech().len() as u32)?;
+      for (j, pos) in m.part_of_speech().iter().enumerate() {
+        let pos_str = env.create_string(pos)?;
+        part_of_speech_arr.set(j as u32, pos_str)?;
+      }
+      obj.set_named_property("partOfSpeech", part_of_speech_arr)?;
+      
+      let normalized = env.create_string(m.normalized_form())?;
+      obj.set_named_property("normalizedForm", normalized)?;
+      
+      let dict_id = env.create_int32(m.dictionary_id())?;
+      obj.set_named_property("dictionaryId", dict_id)?;
+      
+      let mut synonym_ids_arr = env.create_array(m.synonym_group_ids().len() as u32)?;
+      for (j, id) in m.synonym_group_ids().iter().enumerate() {
+        let id_val = env.create_uint32(*id)?;
+        synonym_ids_arr.set(j as u32, id_val)?;
+      }
+      obj.set_named_property("synonymGroupIds", synonym_ids_arr)?;
+      
+      let is_oov = env.get_boolean(m.is_oov())?;
+      obj.set_named_property("isOov", is_oov)?;
+      
+      array.set(i as u32, obj)?;
+    }
+    
+    Ok(array)
   }
 
-  #[napi]
+  #[napi(js_name = "tokenizeToString")]
   pub fn tokenize_to_string(
     &self,
     text: String,
@@ -192,18 +222,34 @@ impl SudachiTokenizer {
     Ok(result)
   }
 
-  #[napi]
-  pub fn split_sentences(&self, text: String) -> Result<Vec<String>> {
+  #[napi(js_name = "splitSentences")]
+  pub fn split_sentences(&self, text: String, env: Env) -> Result<Array> {
     let dict_guard = self.dict.lock()
       .map_err(|e| Error::new(Status::GenericFailure, format!("Failed to lock dictionary: {}", e)))?;
     
+    // 创建句子分割器
     let splitter = SentenceSplitter::new().with_checker(dict_guard.lexicon());
     
-    let sentences = splitter.split(&text)
-      .map(|(_, s)| s.to_string())
-      .collect::<Vec<String>>();
+    // 直接用一个 Vec 收集所有结果
+    let sentences: Vec<&str> = splitter.split(&text)
+      .map(|(_, sent)| sent)
+      .collect();
     
-    Ok(sentences)
+    // 如果分割结果为空但文本不为空，返回原文
+    let final_sentences = if sentences.is_empty() && !text.is_empty() {
+      vec![text.as_str()]
+    } else {
+      sentences
+    };
+    
+    // 创建 JavaScript 数组
+    let mut array = env.create_array(final_sentences.len() as u32)?;
+    for (i, &sentence) in final_sentences.iter().enumerate() {
+      let js_sentence = env.create_string(sentence)?;
+      array.set(i as u32, js_sentence)?;
+    }
+    
+    Ok(array)
   }
 }
 
@@ -231,37 +277,37 @@ impl DictionaryBuilder {
     }
   }
 
-  #[napi]
+  #[napi(js_name = "setConfigPath")]
   pub fn set_config_path(&mut self, path: String) {
     self.config_path = Some(PathBuf::from(path));
   }
 
-  #[napi]
+  #[napi(js_name = "setResourceDir")]
   pub fn set_resource_dir(&mut self, path: String) {
     self.resource_dir = Some(PathBuf::from(path));
   }
 
-  #[napi]
+  #[napi(js_name = "setMatrixFile")]
   pub fn set_matrix_file(&mut self, path: String) {
     self.matrix_file = Some(PathBuf::from(path));
   }
 
-  #[napi]
+  #[napi(js_name = "setSystemDictPath")]
   pub fn set_system_dict_path(&mut self, path: String) {
     self.system_dict_path = Some(PathBuf::from(path));
   }
 
-  #[napi]
+  #[napi(js_name = "setDescription")]
   pub fn set_description(&mut self, description: String) {
     self.description = description;
   }
 
-  #[napi]
+  #[napi(js_name = "addLexiconFile")]
   pub fn add_lexicon_file(&mut self, path: String) {
     self.lexicon_files.push(PathBuf::from(path));
   }
 
-  #[napi]
+  #[napi(js_name = "buildSystemDictionary")]
   pub fn build_system_dictionary(&self, output_path: String) -> Result<String> {
     let matrix_path = match &self.matrix_file {
       Some(path) => path,
@@ -312,7 +358,7 @@ impl DictionaryBuilder {
     Ok(result)
   }
 
-  #[napi]
+  #[napi(js_name = "buildUserDictionary")]
   pub fn build_user_dictionary(&self, output_path: String) -> Result<String> {
     let system_dict_path = match &self.system_dict_path {
       Some(path) => path,
@@ -366,3 +412,4 @@ impl DictionaryBuilder {
     Ok(result)
   }
 }
+

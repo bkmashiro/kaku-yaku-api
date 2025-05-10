@@ -13,7 +13,7 @@ export const enum SentenceSplitMode {
   Only = 1,
   None = 2
 }
-export declare class MorphemeObject {
+export interface MorphemeObject {
   surface: string
   dictionaryForm: string
   readingForm: string
@@ -25,9 +25,9 @@ export declare class MorphemeObject {
 }
 export declare class SudachiTokenizer {
   constructor(configPath?: string | undefined, resourceDir?: string | undefined, dictionaryPath?: string | undefined)
-  tokenize(text: string, mode: SudachiMode, printAll: boolean): Array<MorphemeObject>
+  tokenize(text: string, mode: SudachiMode, printAll: boolean): unknown[]
   tokenizeToString(text: string, mode: SudachiMode, wakati: boolean, printAll: boolean): string
-  splitSentences(text: string): Array<string>
+  splitSentences(text: string): unknown[]
 }
 export declare class DictionaryBuilder {
   constructor()
