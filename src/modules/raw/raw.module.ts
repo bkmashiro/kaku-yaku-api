@@ -7,14 +7,24 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule } from '@nestjs/config';
 import { TatoebaSentence } from './entities/tatoeba-sentence.entity';
 import { TatoebaModule } from './tatoeba/tatoeba.module';
+import { JmDictModule } from './jm-dict/jm-dict.module';
+import { KanjiDictModule } from './kanji-dict/kanji-dict.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([KanjiDict, JMDict, TatoebaSentence]),
     ConfigModule,
     TatoebaModule,
+    JmDictModule,
+    KanjiDictModule,
   ],
   providers: [RawService, DataLoaderService],
-  exports: [DataLoaderService, TatoebaModule],
+  exports: [
+    DataLoaderService, 
+    TatoebaModule,
+    JmDictModule,
+    KanjiDictModule,
+    RawService,
+  ],
 })
 export class RawModule {}
