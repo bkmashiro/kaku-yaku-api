@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, Repository, In } from 'typeorm';
 import { TatoebaSentence } from '../entities/tatoeba-sentence.entity';
 
 @Injectable()
@@ -41,6 +41,30 @@ export class TatoebaService implements OnModuleInit {
 
     return { sentences, total };
   }
+
+  async searchSentencesBulk(
+    queries: string[],
+    lang?: string,
+    limit: number = 20,
+    offset: number = 0,
+  ): Promise<{ sentences: TatoebaSentence[]; total: number }> {
+    const qb = this.tatoebaSentenceRepository
+      .createQueryBuilder('sentence')
+      .where('sentence.text &@ :query', { query: In(queries) });
+
+    if (lang) {
+      qb.andWhere('sentence.lang = :lang', { lang });
+    }
+
+    const [sentences, total] = await qb
+      .skip(offset)
+      .take(limit)
+      .getManyAndCount();
+
+    return { sentences, total };
+  }
+
+
 
   /**
    * 使用 &@~ 操作符搜索例句（支持查询语法）
