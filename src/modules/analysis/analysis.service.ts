@@ -130,7 +130,7 @@ export class AnalysisService {
         this.analyzeSentence(
           sentence, 
           mode, 
-          index === sentences.length - 1 // 只为最后一个句子查找例句
+          index === sentences.length - 1 //TODO 只为最后一个句子查找例句
         )
       )
     );
