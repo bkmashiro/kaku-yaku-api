@@ -9,6 +9,9 @@ import { TatoebaSentence } from '../entities/tatoeba-sentence.entity';
 import { KanjiDictParser } from './helpers/kanji-dict';
 import { JMDictParser } from './helpers/jm-dict-parser';
 import { TatoebaParser } from './helpers/tatoeba-parser';
+import { AnkiVocab } from '../entities/anki-vocab.entity';
+import { AnkiSentence } from '../entities/anki-sentence.entity';
+import { AnkiVocabParser } from './helpers/anki-vocab-parser';
 
 @Injectable()
 export class DataLoaderService {
@@ -16,6 +19,7 @@ export class DataLoaderService {
   private readonly kanjiDictParser: KanjiDictParser;
   private readonly jmDictParser: JMDictParser;
   private readonly tatoebaParser: TatoebaParser;
+  private readonly ankiVocabParser: AnkiVocabParser;
 
   constructor(
     @InjectRepository(KanjiDict)
@@ -24,17 +28,23 @@ export class DataLoaderService {
     private jmDictRepository: Repository<JMDict>,
     @InjectRepository(TatoebaSentence)
     private tatoebaSentenceRepository: Repository<TatoebaSentence>,
+    @InjectRepository(AnkiVocab)
+    private ankiVocabRepository: Repository<AnkiVocab>,
+    @InjectRepository(AnkiSentence)
+    private ankiSentenceRepository: Repository<AnkiSentence>,
     private configService: ConfigService,
   ) {
     this.kanjiDictParser = new KanjiDictParser();
     this.jmDictParser = new JMDictParser();
     this.tatoebaParser = new TatoebaParser();
+    this.ankiVocabParser = new AnkiVocabParser();
   }
 
   async loadAllData() {
     await this.loadKanjiDict();
     await this.loadJMDict();
     await this.loadTatoebaSentences();
+    await this.loadAnkiVocab();
   }
 
   /**
@@ -268,5 +278,98 @@ export class DataLoaderService {
       return value.filter(v => v !== null && v !== undefined && v !== '');
     }
     return [value].filter(v => v !== null && v !== undefined && v !== '');
+  }
+
+  async loadAnkiVocab(filePath?: string): Promise<void> {
+    const shouldLoad = this.configService.get('LOAD_ANKI') === 'true';
+    if (!shouldLoad) {
+      this.logger.log('Skipping AnkiVocab data loading as per configuration');
+      return;
+    }
+
+    const path = filePath || this.configService.get('ANKI_PATH');
+    if (!path) {
+      throw new Error('ANKI_VOCAB_PATH is not configured');
+    }
+
+    this.logger.log(`Loading AnkiVocab from ${path}`);
+
+    // clear the table
+    await this.ankiVocabRepository.query(`TRUNCATE TABLE "anki-vocab" CASCADE`);
+    this.logger.warn('Cleared AnkiVocab table');
+
+    const stream = createReadStream(path);
+    const transform = this.ankiVocabParser.createTransformStream();
+
+    const batchSize = 1000;
+    let batch: AnkiVocab[] = [];
+    let totalProcessed = 0;
+
+    return new Promise((resolve, reject) => {
+      const processBatch = async () => {
+        if (batch.length === 0) return;
+
+        const currentBatch = [...batch];
+        batch = [];
+
+        try {
+          // 使用 save 方法，启用 cascade 选项来保存关联的 sentences
+          await this.ankiVocabRepository.save(currentBatch, { 
+            reload: false,
+            chunk: 100 
+          });
+          totalProcessed += currentBatch.length;
+          this.logger.debug(`Processed ${totalProcessed} vocab entries`);
+        } catch (error) {
+          this.logger.error('Error saving batch:', error);
+          reject(error);
+        }
+      };
+
+      transform.on('data', async (data: { vocab: AnkiVocab; sentences: AnkiSentence[] }) => {
+        // 将例句关联到词汇
+        data.vocab.sentences = data.sentences;
+        
+        // 添加调试日志
+        // if (data.sentences.length > 0) {
+        //   this.logger.debug(`Vocabulary "${data.vocab.kanji}" has ${data.sentences.length} sentences`);
+        // }
+        
+        batch.push(data.vocab);
+        
+        if (batch.length >= batchSize) {
+          // 暂停流
+          stream.pause();
+          await processBatch();
+          // 恢复流
+          stream.resume();
+        }
+      });
+
+      transform.on('end', async () => {
+        try {
+          // 处理剩余的批次
+          if (batch.length > 0) {
+            await processBatch();
+          }
+          this.logger.log(`Completed loading AnkiVocab, total: ${totalProcessed}`);
+          resolve();
+        } catch (error) {
+          reject(error);
+        }
+      });
+
+      transform.on('error', (error) => {
+        this.logger.error('Transform stream error:', error);
+        reject(error);
+      });
+
+      stream.on('error', (error) => {
+        this.logger.error('Read stream error:', error);
+        reject(error);
+      });
+
+      stream.pipe(transform);
+    });
   }
 }

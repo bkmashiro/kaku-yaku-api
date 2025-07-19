@@ -1,5 +1,6 @@
 import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
 import { SudachiTokenizer, SudachiMode } from '../../../sudachi-native';
+// require('../../../sudachi-native/index.linux-x64-gnu.node');
 import * as fs from 'fs';
 import { ConfigService } from '@nestjs/config';
 export interface TokenizeOptions {
@@ -33,7 +34,11 @@ export class SudachiService implements OnModuleInit {
       this.logger.log(`使用字典: ${dictionaryPath}`);
 
       // 创建 Sudachi 分词器
-      this.tokenizer = new SudachiTokenizer(null, null, dictionaryPath);
+      this.tokenizer = new SudachiTokenizer(
+        null,
+        null,
+        dictionaryPath,
+      );
       this.logger.log('Sudachi 分词器初始化成功');
     } catch (error) {
       this.logger.error(`Sudachi 分词器初始化失败: ${error.message}`);
@@ -68,7 +73,7 @@ export class SudachiService implements OnModuleInit {
     const result = this.tokenizer.tokenize(text, mode, printAll);
 
     // console.log(result);
-    
+
     return result;
   }
 

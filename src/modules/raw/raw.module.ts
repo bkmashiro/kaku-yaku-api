@@ -9,14 +9,18 @@ import { TatoebaSentence } from './entities/tatoeba-sentence.entity';
 import { TatoebaModule } from './tatoeba/tatoeba.module';
 import { JmDictModule } from './jm-dict/jm-dict.module';
 import { KanjiDictModule } from './kanji-dict/kanji-dict.module';
+import { AnkiModule } from './anki/anki.module';
+import { AnkiVocab } from './entities/anki-vocab.entity';
+import { AnkiSentence } from './entities/anki-sentence.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([KanjiDict, JMDict, TatoebaSentence]),
+    TypeOrmModule.forFeature([KanjiDict, JMDict, TatoebaSentence, AnkiVocab, AnkiSentence]),
     ConfigModule,
     TatoebaModule,
     JmDictModule,
     KanjiDictModule,
+    AnkiModule,
   ],
   providers: [RawService, DataLoaderService],
   exports: [
