@@ -219,7 +219,10 @@ export class AnkiVocabParser {
     }
 
     // 按・分割词性
-    const posArray = posField.split('・').map(pos => pos.trim()).filter(pos => pos.length > 0);
+    const posArray = 
+      posField.split('・')
+      .map(pos => pos.trim())
+      .filter(pos => pos.length > 0);
     
     return posArray.length > 0 ? posArray : null;
   }

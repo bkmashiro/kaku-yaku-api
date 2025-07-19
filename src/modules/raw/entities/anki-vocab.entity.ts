@@ -14,7 +14,7 @@ export class AnkiVocab {
     @Column({ nullable: true })
     pitch: string;
 
-    @Column({ nullable: true, type: 'simple-array' })
+    @Column("text", { nullable: true, array: true })
     pos: string[];
 
     @Column({ nullable: true })
@@ -44,9 +44,9 @@ export class AnkiVocab {
     @Column({ nullable: true, type: 'simple-array' })
     jlpt: string[];
 
-    @OneToMany(() => AnkiSentence, sentence => sentence.vocab, { 
-      onDelete: 'CASCADE',
-      cascade: true 
+    @OneToMany(() => AnkiSentence, sentence => sentence.vocab, {
+        onDelete: 'CASCADE',
+        cascade: true
     })
     sentences: AnkiSentence[];
 }
