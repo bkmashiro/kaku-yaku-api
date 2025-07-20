@@ -16,6 +16,12 @@ export interface PaginatedResult<T> {
   totalPages: number;
 }
 
+export interface FilterOptions {
+  pos?: string[];
+  jlpt?: string[];
+  keyword?: string;
+}
+
 @Injectable()
 export class AnkiService {
   constructor(
@@ -117,5 +123,65 @@ export class AnkiService {
       .filter(jlpt => jlpt && jlpt.trim().length > 0);
 
     return [...new Set(allJLPT)].sort();
+  }
+
+  /**
+   * 根据多条件筛选词汇列表
+   * @param filters 筛选条件
+   * @param options 分页选项
+   * @returns 分页的词汇列表
+   */
+  async findByFilters(filters: FilterOptions, options: PaginationOptions): Promise<PaginatedResult<AnkiVocab>> {
+    const { page, limit } = options;
+    const skip = (page - 1) * limit;
+
+    const queryBuilder = this.ankiVocabRepository
+      .createQueryBuilder('vocab')
+      .leftJoinAndSelect('vocab.sentences', 'sentences');
+
+    // 添加词性筛选条件
+    if (filters.pos && filters.pos.length > 0) {
+      const posConditions = filters.pos.map((_, index) => `:pos${index} = ANY(vocab.pos)`).join(' OR ');
+      const posParams = filters.pos.reduce((params, pos, index) => {
+        params[`pos${index}`] = pos;
+        return params;
+      }, {});
+      
+      queryBuilder.andWhere(`(${posConditions})`, posParams);
+    }
+
+    // 添加JLPT等级筛选条件
+    if (filters.jlpt && filters.jlpt.length > 0) {
+      const jlptConditions = filters.jlpt.map((_, index) => `:jlpt${index} = ANY(vocab.jlpt)`).join(' OR ');
+      const jlptParams = filters.jlpt.reduce((params, jlpt, index) => {
+        params[`jlpt${index}`] = jlpt;
+        return params;
+      }, {});
+      
+      queryBuilder.andWhere(`(${jlptConditions})`, jlptParams);
+    }
+
+    // 添加关键词搜索条件
+    if (filters.keyword && filters.keyword.trim().length > 0) {
+      queryBuilder.andWhere(
+        '(vocab.kanji ILIKE :keyword OR vocab.reading ILIKE :keyword OR vocab.definitionCn ILIKE :keyword OR vocab.definitionTc ILIKE :keyword)',
+        { keyword: `%${filters.keyword.trim()}%` }
+      );
+    }
+
+    const [data, total] = await queryBuilder
+      .orderBy('vocab.frequency', 'DESC')
+      .addOrderBy('vocab.kanji', 'ASC')
+      .skip(skip)
+      .take(limit)
+      .getManyAndCount();
+
+    return {
+      data,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
   }
 }
