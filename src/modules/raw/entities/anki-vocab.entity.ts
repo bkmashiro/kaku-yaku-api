@@ -41,7 +41,7 @@ export class AnkiVocab {
     @Column({ nullable: true })
     alt2: string;
 
-    @Column({ nullable: true, type: 'simple-array' })
+    @Column({ nullable: true, type: 'text', array: true })
     jlpt: string[];
 
     @OneToMany(() => AnkiSentence, sentence => sentence.vocab, {
