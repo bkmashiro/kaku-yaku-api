@@ -33,19 +33,19 @@ export class LlmService {
   /**
    * Explain a grammar point in context — returns structured JSON
    */
-  async explainGrammar(sentence: string, targetWord: string): Promise<GrammarExplanation> {
+  async explainGrammar(sentence: string, targetWord: string, lang = 'English'): Promise<GrammarExplanation> {
     const prompt = `You are a Japanese language tutor. The student is reading:
 "${sentence}"
 
 Explain the word/pattern "${targetWord}" in this context.
 
-Respond ONLY with valid JSON (no markdown):
+Respond ONLY with valid JSON (no markdown). Use ${lang} for all text values:
 {
   "role": "grammar role or part of speech in one short phrase",
   "function": "one sentence: how it functions in this specific sentence",
   "rule": "one sentence: the general rule or pattern to remember",
   "example": "one Japanese example sentence using this pattern",
-  "exampleTrans": "English translation of the example"
+  "exampleTrans": "translation of the example in ${lang}"
 }`;
 
     try {
