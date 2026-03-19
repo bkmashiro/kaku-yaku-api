@@ -1,11 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import OpenAI from 'openai';
 
-function extractJson(text: string): string {
-  const match = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-  return match ? match[1].trim() : text.trim();
-}
-
 export interface GrammarExplanation {
   role: string;        // 词性/语法角色，e.g. "Counter suffix"
   function: string;    // 在句中的作用
@@ -34,29 +29,24 @@ export class LlmService {
    * Explain a grammar point in context — returns structured JSON
    */
   async explainGrammar(sentence: string, targetWord: string, lang = 'English'): Promise<GrammarExplanation> {
-    const prompt = `You are a Japanese language tutor. The student is reading:
-"${sentence}"
-
-Explain the word/pattern "${targetWord}" in this context.
-
-Respond ONLY with valid JSON (no markdown). Use ${lang} for all text values:
-{
-  "role": "grammar role or part of speech in one short phrase",
-  "function": "one sentence: how it functions in this specific sentence",
-  "rule": "one sentence: the general rule or pattern to remember",
-  "example": "one Japanese example sentence using this pattern",
-  "exampleTrans": "translation of the example in ${lang}"
-}`;
-
     try {
       const res = await this.client.chat.completions.create({
         model: this.model,
-        messages: [{ role: 'user', content: prompt }],
+        messages: [
+          {
+            role: 'system',
+            content: `You are a Japanese language tutor. Always respond with valid JSON only. Use ${lang} for all explanatory text. JSON schema: { "role": string, "function": string, "rule": string, "example": string (Japanese), "exampleTrans": string }`,
+          },
+          {
+            role: 'user',
+            content: `Sentence: "${sentence}"\nExplain the word/pattern: "${targetWord}"`,
+          },
+        ],
         response_format: { type: 'json_object' },
         max_tokens: 300,
       });
       const content = res.choices[0].message.content || '{}';
-      return JSON.parse(extractJson(content));
+      return JSON.parse(content);
     } catch (error) {
       this.logger.error(`explainGrammar failed: ${error.message}`);
       throw error;
@@ -70,27 +60,24 @@ Respond ONLY with valid JSON (no markdown). Use ${lang} for all text values:
     sentence: string,
     lang = 'English',
   ): Promise<{ translation: string; chunks: Array<{ jp: string; en: string }> }> {
-    const prompt = `Translate this Japanese sentence into ${lang}: "${sentence}"
-
-Respond ONLY with valid JSON (no markdown):
-{
-  "translation": "natural ${lang} translation",
-  "chunks": [
-    { "jp": "Japanese chunk", "en": "${lang} meaning" }
-  ]
-}
-
-Split into 3-6 meaningful chunks.`;
-
     try {
       const res = await this.client.chat.completions.create({
         model: this.model,
-        messages: [{ role: 'user', content: prompt }],
+        messages: [
+          {
+            role: 'system',
+            content: `You are a Japanese translator. Always respond with valid JSON only. Translate into ${lang}. JSON schema: { "translation": string, "chunks": [{ "jp": string, "en": string }] }. Split into 3-6 meaningful chunks.`,
+          },
+          {
+            role: 'user',
+            content: `Translate: "${sentence}"`,
+          },
+        ],
         response_format: { type: 'json_object' },
         max_tokens: 400,
       });
       const content = res.choices[0].message.content || '{"translation":"","chunks":[]}';
-      return JSON.parse(extractJson(content));
+      return JSON.parse(content);
     } catch (error) {
       this.logger.error(`translateSentence failed: ${error.message}`);
       throw error;
