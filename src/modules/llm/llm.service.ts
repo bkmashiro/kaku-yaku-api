@@ -68,14 +68,15 @@ Respond ONLY with valid JSON (no markdown). Use ${lang} for all text values:
    */
   async translateSentence(
     sentence: string,
+    lang = 'English',
   ): Promise<{ translation: string; chunks: Array<{ jp: string; en: string }> }> {
-    const prompt = `Translate this Japanese sentence: "${sentence}"
+    const prompt = `Translate this Japanese sentence into ${lang}: "${sentence}"
 
 Respond ONLY with valid JSON (no markdown):
 {
-  "translation": "natural English translation",
+  "translation": "natural ${lang} translation",
   "chunks": [
-    { "jp": "Japanese chunk", "en": "English meaning" }
+    { "jp": "Japanese chunk", "en": "${lang} meaning" }
   ]
 }
 

@@ -10,6 +10,7 @@ class ExplainGrammarDto {
 
 class TranslateDto {
   sentence: string;
+  lang?: string;
 }
 
 @ApiTags('LLM')
@@ -26,6 +27,6 @@ export class LlmController {
   @ApiOperation({ summary: '翻译日语句子，附带逐块解析' })
   @Post('translate')
   async translate(@Body() dto: TranslateDto) {
-    return await this.llmService.translateSentence(dto.sentence);
+    return await this.llmService.translateSentence(dto.sentence, dto.lang);
   }
 }
