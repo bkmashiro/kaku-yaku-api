@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, ILike, In } from 'typeorm';
+import { Repository } from 'typeorm';
 import { JMDict } from '../entities/jm-dict.entity';
 
 @Injectable()
@@ -11,73 +11,54 @@ export class JmDictService {
   ) {}
 
   /**
-   * Find entries by kanji (exact match)
+   * Find entries by kanji (exact element match in text[])
    */
   async findByKanji(kanji: string): Promise<JMDict[]> {
-    return this.jmDictRepository.find({
-      where: { keb: kanji },
-    });
-  }
-
-  /**
-   * Find entries by multiple kanji terms (bulk search)
-   */
-  async findByKanjiBulk(kanjiTerms: string[]): Promise<JMDict[]> {
-    if (!kanjiTerms.length) return [];
-    
-    const query = this.jmDictRepository.createQueryBuilder('jmdict');
-    
-    // 使用 ANY 操作符，为每个关键词创建一个条件
-    const conditions = kanjiTerms.map((_, index) => `:term${index} = ANY(jmdict.keb)`);
-    const params: Record<string, any> = {};
-    
-    kanjiTerms.forEach((term, index) => {
-      params[`term${index}`] = term;
-    });
-    
-    return query
-      .where(conditions.join(' OR '), params)
+    return this.jmDictRepository
+      .createQueryBuilder('j')
+      .where(':kanji = ANY(j.keb)', { kanji })
       .getMany();
   }
 
   /**
-   * Find entries by kanji (partial match)
+   * Find entries by multiple kanji terms (bulk search using && overlap)
+   */
+  async findByKanjiBulk(terms: string[]): Promise<JMDict[]> {
+    if (!terms.length) return [];
+    return this.jmDictRepository
+      .createQueryBuilder('j')
+      .where('j.keb && :terms::text[]', { terms })
+      .getMany();
+  }
+
+  /**
+   * Find entries by kanji (partial match — element in array)
    */
   async findByKanjiPartial(kanji: string): Promise<JMDict[]> {
     return this.jmDictRepository
-      .createQueryBuilder('jmdict')
-      .where(':kanji = ANY(jmdict.keb)', { kanji })
-      .orWhere('jmdict.keb @> ARRAY[:kanji]', { kanji })
+      .createQueryBuilder('j')
+      .where(':kanji = ANY(j.keb)', { kanji })
       .getMany();
   }
 
   /**
-   * Find entries by reading (exact match)
+   * Find entries by reading (exact element match in text[])
    */
   async findByReading(reading: string): Promise<JMDict[]> {
-    return this.jmDictRepository.find({
-      where: { reb: reading },
-    });
+    return this.jmDictRepository
+      .createQueryBuilder('j')
+      .where(':reading = ANY(j.reb)', { reading })
+      .getMany();
   }
 
   /**
-   * Find entries by multiple reading terms (bulk search)
+   * Find entries by multiple reading terms (bulk search using && overlap)
    */
   async findByReadingBulk(readings: string[]): Promise<JMDict[]> {
     if (!readings.length) return [];
-    
-    const query = this.jmDictRepository.createQueryBuilder('jmdict');
-    
-    // 使用 ANY 操作符，为每个关键词创建一个条件
-    const conditions = readings.map((_, index) => `:term${index} = ANY(jmdict.reb)`);
-    const params: Record<string, any> = {};
-    
-    readings.forEach((term, index) => {
-      params[`term${index}`] = term;
-    });
-    
-    return query
-      .where(conditions.join(' OR '), params)
+    return this.jmDictRepository
+      .createQueryBuilder('j')
+      .where('j.reb && :readings::text[]', { readings })
       .getMany();
   }
 
@@ -86,30 +67,32 @@ export class JmDictService {
    */
   async findByReadingPartial(reading: string): Promise<JMDict[]> {
     return this.jmDictRepository
-      .createQueryBuilder('jmdict')
-      .where(':reading = ANY(jmdict.reb)', { reading })
-      .orWhere('jmdict.reb @> ARRAY[:reading]', { reading })
+      .createQueryBuilder('j')
+      .where(':reading = ANY(j.reb)', { reading })
       .getMany();
   }
 
   /**
-   * Search by kanji
+   * Search by kanji (element match)
    */
   async search(term: string): Promise<JMDict[]> {
-    return this.jmDictRepository.find({
-      where: { keb: term },
-    });
+    return this.jmDictRepository
+      .createQueryBuilder('j')
+      .where(':term = ANY(j.keb)', { term })
+      .orWhere(':term = ANY(j.reb)', { term })
+      .getMany();
   }
 
   /**
-   * Bulk search by either kanji or reading
+   * Bulk search by either kanji or reading (overlap operator)
    */
   async searchBulk(terms: string[]): Promise<JMDict[]> {
     if (!terms.length) return [];
-    
-    return this.jmDictRepository.find({
-      where: { keb: In(terms) },
-    });
+    return this.jmDictRepository
+      .createQueryBuilder('j')
+      .where('j.keb && :terms::text[]', { terms })
+      .orWhere('j.reb && :terms::text[]', { terms })
+      .getMany();
   }
 
   /**
@@ -117,46 +100,33 @@ export class JmDictService {
    */
   async fullTextSearch(query: string, limit: number = 20): Promise<JMDict[]> {
     return this.jmDictRepository
-      .createQueryBuilder('jmdict')
-      .where(':query = ANY(jmdict.keb)', { query })
-      .orWhere(':query = ANY(jmdict.reb)', { query })
-      .orWhere(':query = ANY(jmdict.gloss)', { query })
-      .orWhere('jmdict.keb @> ARRAY[:query]', { query })
-      .orWhere('jmdict.reb @> ARRAY[:query]', { query })
+      .createQueryBuilder('j')
+      .where(':query = ANY(j.keb)', { query })
+      .orWhere(':query = ANY(j.reb)', { query })
+      .orWhere(':query = ANY(j.gloss)', { query })
       .limit(limit)
       .getMany();
   }
 
   /**
-   * Find entries by meaning (for aggregated search)
+   * Find entries by meaning
    */
   async findByMeaning(meaning: string, limit: number = 20): Promise<JMDict[]> {
     return this.jmDictRepository
-      .createQueryBuilder('jmdict')
-      .where(`:meaning = ANY(jmdict.gloss)`, { meaning })
-      .orWhere(`jmdict.gloss @> ARRAY[:meaning]`, { meaning })
+      .createQueryBuilder('j')
+      .where(':meaning = ANY(j.gloss)', { meaning })
       .limit(limit)
       .getMany();
   }
 
   /**
-   * Find entries by multiple meanings (bulk search)
+   * Find entries by multiple meanings (bulk)
    */
   async findByMeaningBulk(meanings: string[], limit: number = 50): Promise<JMDict[]> {
     if (!meanings.length) return [];
-    
-    const query = this.jmDictRepository.createQueryBuilder('jmdict');
-    
-    // 使用 ANY 操作符，为每个关键词创建一个条件
-    const conditions = meanings.map((_, index) => `:meaning${index} = ANY(jmdict.gloss)`);
-    const params: Record<string, any> = {};
-    
-    meanings.forEach((meaning, index) => {
-      params[`meaning${index}`] = meaning;
-    });
-    
-    return query
-      .where(conditions.join(' OR '), params)
+    return this.jmDictRepository
+      .createQueryBuilder('j')
+      .where('j.gloss && :meanings::text[]', { meanings })
       .limit(limit)
       .getMany();
   }

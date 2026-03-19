@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository, In } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { TatoebaSentence } from '../entities/tatoeba-sentence.entity';
 
 @Injectable()
@@ -48,9 +48,11 @@ export class TatoebaService implements OnModuleInit {
     limit: number = 20,
     offset: number = 0,
   ): Promise<{ sentences: TatoebaSentence[]; total: number }> {
+    if (!queries.length) return { sentences: [], total: 0 };
+
     const qb = this.tatoebaSentenceRepository
       .createQueryBuilder('sentence')
-      .where('sentence.text &@ :query', { query: In(queries) });
+      .where('sentence.text &@| :queries', { queries });
 
     if (lang) {
       qb.andWhere('sentence.lang = :lang', { lang });

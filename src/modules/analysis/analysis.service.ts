@@ -1,28 +1,99 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { SudachiService } from '../sudachi/sudachi.service';
 import { RawService } from '../raw/raw.service';
+import { JmDictService } from '../raw/jm-dict/jm-dict.service';
 import { SudachiMode } from '../../../sudachi-native';
-import { 
-  MorphemeToken, 
-  TokenAnalysisResponseDto, 
-  SentenceAnalysisResponseDto, 
-  TextAnalysisResponseDto 
+import { JMDict } from '../raw/entities/jm-dict.entity';
+import {
+  MorphemeToken,
+  TokenAnalysisResponseDto,
+  SentenceAnalysisResponseDto,
+  TextAnalysisResponseDto
 } from './dto/analysis-result.dto';
+
+const JMDICT_CACHE_MAX = 5000;
 
 @Injectable()
 export class AnalysisService {
   private readonly logger = new Logger(AnalysisService.name);
+  private readonly jmdictCache = new Map<string, JMDict[]>();
 
   constructor(
     private readonly sudachiService: SudachiService,
     private readonly rawService: RawService,
+    private readonly jmDictService: JmDictService,
   ) {}
 
   /**
+   * Build a term→entries Map for a set of tokens, using memory cache.
+   */
+  private async lookupTokens(tokens: MorphemeToken[]): Promise<Map<string, JMDict[]>> {
+    // Collect unique terms (dictionaryForm + surface), skip pure kana-only if desired
+    const allTerms = [...new Set(
+      tokens.flatMap(t => [t.dictionaryForm, t.surface].filter(Boolean))
+    )];
+
+    // Split into cached and uncached
+    const uncached = allTerms.filter(term => !this.jmdictCache.has(term));
+
+    if (uncached.length) {
+      const entries = await this.jmDictService.searchBulk(uncached);
+
+      // Build per-term buckets for uncached terms
+      const buckets = new Map<string, JMDict[]>();
+      for (const term of uncached) {
+        buckets.set(term, []);
+      }
+      for (const entry of entries) {
+        for (const term of [...(entry.keb || []), ...(entry.reb || [])]) {
+          if (buckets.has(term)) {
+            buckets.get(term)!.push(entry);
+          }
+        }
+      }
+
+      // Evict oldest entries if cache is full
+      for (const [term, matched] of buckets) {
+        if (this.jmdictCache.size >= JMDICT_CACHE_MAX) {
+          const firstKey = this.jmdictCache.keys().next().value;
+          this.jmdictCache.delete(firstKey);
+        }
+        this.jmdictCache.set(term, matched);
+      }
+    }
+
+    // Build result map from cache
+    const result = new Map<string, JMDict[]>();
+    for (const term of allTerms) {
+      result.set(term, this.jmdictCache.get(term) || []);
+    }
+    return result;
+  }
+
+  /**
+   * Pick JMDict entries for a single token from the lookup map.
+   * Prefer dictionaryForm match; fall back to surface.
+   */
+  private resolveToken(token: MorphemeToken, map: Map<string, JMDict[]>): JMDict[] {
+    const byDict = map.get(token.dictionaryForm) || [];
+    const bySurface = token.surface !== token.dictionaryForm
+      ? (map.get(token.surface) || [])
+      : [];
+
+    // Merge deduped by ent_seq
+    const seen = new Set<number>();
+    const merged: JMDict[] = [];
+    for (const entry of [...byDict, ...bySurface]) {
+      if (!seen.has(entry.ent_seq)) {
+        seen.add(entry.ent_seq);
+        merged.push(entry);
+      }
+    }
+    return merged;
+  }
+
+  /**
    * 分析单个句子
-   * @param sentence 输入句子
-   * @param mode Sudachi分词模式
-   * @param findExamples 是否查找例句
    */
   async analyzeSentence(
     sentence: string,
@@ -30,77 +101,56 @@ export class AnalysisService {
     findExamples: boolean = true
   ): Promise<SentenceAnalysisResponseDto> {
     try {
-      // 1. 对句子进行分词
       const tokens = this.sudachiService.tokenize(sentence, { mode, printAll: true }) as MorphemeToken[];
-      
-      // 2. 准备需要查询的数据
-      const dictionaryForms = tokens.map(token => token.dictionaryForm);
-      const readings = tokens.map(token => token.readingForm);
-      const surfaces = tokens.map(token => token.surface);
-      
-      // 提取单字汉字进行查询
-      const singleCharacters = new Set<string>();
-      surfaces.forEach(surface => {
-        if (surface.length === 1 && this.isKanji(surface)) {
-          singleCharacters.add(surface);
+
+      // Per-token JMDict lookup via cache
+      const jmdictMap = await this.lookupTokens(tokens);
+
+      // Single-char kanji lookup via raw service (kanjiDict)
+      const singleCharKanji = new Set<string>();
+      for (const token of tokens) {
+        if (token.surface.length === 1 && this.isKanji(token.surface)) {
+          singleCharKanji.add(token.surface);
         }
-      });
-      dictionaryForms.forEach(form => {
-        if (form.length === 1 && this.isKanji(form)) {
-          singleCharacters.add(form);
-        }
-      });
-      
-      // 3. 使用 RawService 的批量聚合查询
-      const allTerms = [
-        ...dictionaryForms,
-        ...surfaces,
-        ...readings
-      ];
-      
-      // 使用聚合查询获取所有词典数据
-      const result = await this.rawService.bulkAggregatedSearch(allTerms);
-      
-      // 如果有必要，查询例句
+      }
+
+      const kanjiMap = new Map<string, any>();
+      if (singleCharKanji.size) {
+        const bulkResult = await this.rawService.bulkAggregatedSearch([...singleCharKanji]);
+        bulkResult.queries.forEach((q, i) => {
+          if (bulkResult.kanjiResults[i]) {
+            kanjiMap.set(q, bulkResult.kanjiResults[i]);
+          }
+        });
+      }
+
+      // Example sentences
       let exampleResults = [];
       if (findExamples) {
         const singleResult = await this.rawService.aggregatedSearch(sentence);
         exampleResults = singleResult.examples || [];
       }
-      
-      // 4. 整合分析结果
+
       const tokenAnalyses: TokenAnalysisResponseDto[] = tokens.map(token => {
-        const surface = token.surface;
-        const dictionaryForm = token.dictionaryForm;
-        const reading = token.readingForm;
-        
-        // 查找匹配的日语词典条目
-        const matchedJmdict = result.jmdictResults.filter(entry => 
-          (entry.keb && entry.keb.includes(dictionaryForm)) || 
-          (entry.keb && entry.keb.includes(surface)) ||
-          (entry.reb && entry.reb.includes(reading))
-        );
-        
-        // 查找匹配的汉字条目 (仅对单字有效)
-        let matchedKanji = null;
-        if (surface.length === 1 && this.isKanji(surface)) {
-          const kanjiIndex = result.queries.findIndex(q => q === surface);
-          if (kanjiIndex >= 0 && result.kanjiResults[kanjiIndex]) {
-            matchedKanji = result.kanjiResults[kanjiIndex];
-          }
-        }
-        
+        const matchedJmdict = this.resolveToken(token, jmdictMap);
+        const matchedKanji = (token.surface.length === 1 && this.isKanji(token.surface))
+          ? (kanjiMap.get(token.surface) || null)
+          : null;
+
         return {
-          surface,
-          dictionaryForm,
-          reading,
-          pos: token.partOfSpeech[0], // 品词主分类
-          posDetail: token.partOfSpeech.slice(1), // 品词详细信息
+          surface: token.surface,
+          dictionaryForm: token.dictionaryForm,
+          normalizedForm: token.normalizedForm,
+          reading: token.readingForm,
+          pos: token.partOfSpeech[0],
+          posDetail: token.partOfSpeech.slice(1),
+          isOov: token.isOov,
           jmdict: matchedJmdict,
-          kanji: matchedKanji
+          kanji: matchedKanji,
+          meanings: matchedJmdict[0]?.gloss?.slice(0, 3) || [],
         };
       });
-      
+
       return {
         original: sentence,
         tokens: tokenAnalyses,
@@ -111,128 +161,95 @@ export class AnalysisService {
       throw error;
     }
   }
-  
+
   /**
    * 分析文本 (分割成句子后分别分析)
-   * @param text 输入文本
-   * @param mode Sudachi分词模式
    */
   async analyzeText(
-    text: string, 
+    text: string,
     mode: SudachiMode = SudachiMode.C
   ): Promise<TextAnalysisResponseDto> {
-    // 1. 分割句子
     const sentences = this.sudachiService.splitSentences(text);
-    
-    // 2. 对每个句子进行分析 (只为最后一个句子查找例句以提高性能)
+
     const sentenceAnalyses = await Promise.all(
-      sentences.map((sentence, index) => 
+      sentences.map((sentence, index) =>
         this.analyzeSentence(
-          sentence, 
-          mode, 
-          index === sentences.length - 1 //TODO 只为最后一个句子查找例句
+          sentence,
+          mode,
+          index === sentences.length - 1
         )
       )
     );
-    
+
     return {
       original: text,
       sentences: sentenceAnalyses,
     };
   }
-  
+
   /**
-   * 批量分析句子 (适用于大量短句同时处理)
-   * @param sentences 句子数组
-   * @param mode Sudachi分词模式
+   * 批量分析句子
    */
   async analyzeSentenceBatch(
     sentences: string[],
     mode: SudachiMode = SudachiMode.C
   ): Promise<SentenceAnalysisResponseDto[]> {
     if (!sentences.length) return [];
-    
+
     try {
-      // 1. 批量分词处理
-      const allTokensByIndex: MorphemeToken[][] = sentences.map(sentence => 
+      // Tokenize all sentences
+      const allTokensByIndex: MorphemeToken[][] = sentences.map(sentence =>
         this.sudachiService.tokenize(sentence, { mode, printAll: true }) as MorphemeToken[]
       );
-      
-      // 2. 收集所有需要查询的唯一表层形式、字典形式和单字汉字
-      const allTerms: string[] = [];
-      const termIndices: Map<string, number[]> = new Map();
-      
-      allTokensByIndex.forEach((tokens, sentenceIndex) => {
-        tokens.forEach(token => {
-          const surface = token.surface;
-          const dictionaryForm = token.dictionaryForm;
-          const reading = token.readingForm;
-          
-          // 跟踪每个词条来自哪个句子、哪个词元
-          for (const term of [surface, dictionaryForm, reading]) {
-            if (!termIndices.has(term)) {
-              termIndices.set(term, []);
-              allTerms.push(term);
-            }
-            const indices = termIndices.get(term)!;
-            if (!indices.includes(sentenceIndex)) {
-              indices.push(sentenceIndex);
-            }
+
+      // Collect all tokens for batch lookup
+      const allTokens = allTokensByIndex.flat();
+      const jmdictMap = await this.lookupTokens(allTokens);
+
+      // Collect single-char kanji across all tokens
+      const singleCharKanji = new Set<string>();
+      for (const token of allTokens) {
+        if (token.surface.length === 1 && this.isKanji(token.surface)) {
+          singleCharKanji.add(token.surface);
+        }
+      }
+
+      const kanjiMap = new Map<string, any>();
+      if (singleCharKanji.size) {
+        const bulkResult = await this.rawService.bulkAggregatedSearch([...singleCharKanji]);
+        bulkResult.queries.forEach((q, i) => {
+          if (bulkResult.kanjiResults[i]) {
+            kanjiMap.set(q, bulkResult.kanjiResults[i]);
           }
         });
-      });
-      
-      // 3. 使用 RawService 的批量聚合查询
-      const result = await this.rawService.bulkAggregatedSearch(allTerms);
-      
-      // 4. 为前 5 个句子查询例句
-      const exampleResults = result.examples || [];
-      
-      // 5. 构建结果
+      }
+
       return sentences.map((sentence, sentenceIndex) => {
         const tokens = allTokensByIndex[sentenceIndex];
-        
+
         const tokenAnalyses: TokenAnalysisResponseDto[] = tokens.map(token => {
-          const surface = token.surface;
-          const dictionaryForm = token.dictionaryForm;
-          const reading = token.readingForm;
-          
-          // 查找匹配的日语词典条目
-          const matchedJmdict = result.jmdictResults.filter(entry => 
-            (entry.keb && entry.keb.includes(dictionaryForm)) || 
-            (entry.keb && entry.keb.includes(surface)) ||
-            (entry.reb && entry.reb.includes(reading))
-          );
-          
-          // 查找匹配的汉字条目
-          let matchedKanji = null;
-          if (surface.length === 1 && this.isKanji(surface)) {
-            const kanjiIndex = result.queries.findIndex(q => q === surface);
-            if (kanjiIndex >= 0 && result.kanjiResults[kanjiIndex]) {
-              matchedKanji = result.kanjiResults[kanjiIndex];
-            }
-          }
-          
+          const matchedJmdict = this.resolveToken(token, jmdictMap);
+          const matchedKanji = (token.surface.length === 1 && this.isKanji(token.surface))
+            ? (kanjiMap.get(token.surface) || null)
+            : null;
+
           return {
-            surface,
-            dictionaryForm,
-            reading,
+            surface: token.surface,
+            dictionaryForm: token.dictionaryForm,
+            normalizedForm: token.normalizedForm,
+            reading: token.readingForm,
             pos: token.partOfSpeech[0],
             posDetail: token.partOfSpeech.slice(1),
+            isOov: token.isOov,
             jmdict: matchedJmdict,
-            kanji: matchedKanji
+            kanji: matchedKanji,
+            meanings: matchedJmdict[0]?.gloss?.slice(0, 3) || [],
           };
         });
-        
-        // 为每个句子关联可能的例句
-        const relevantExamples = sentenceIndex < 5 
-          ? exampleResults.filter(ex => ex.text.includes(sentence))
-          : [];
-        
+
         return {
           original: sentence,
           tokens: tokenAnalyses,
-          examples: relevantExamples.length > 0 ? relevantExamples : undefined
         };
       });
     } catch (error) {
@@ -240,24 +257,22 @@ export class AnalysisService {
       throw error;
     }
   }
-  
+
   /**
    * 判断字符是否为汉字
    */
   private isKanji(char: string): boolean {
     if (char.length !== 1) return false;
-    
-    // 汉字的 Unicode 范围
     const code = char.charCodeAt(0);
     return (
-      (code >= 0x4E00 && code <= 0x9FFF) || // CJK 统一表意文字
-      (code >= 0x3400 && code <= 0x4DBF) || // CJK 统一表意文字扩展 A
-      (code >= 0x20000 && code <= 0x2A6DF) || // CJK 统一表意文字扩展 B
-      (code >= 0x2A700 && code <= 0x2B73F) || // CJK 统一表意文字扩展 C
-      (code >= 0x2B740 && code <= 0x2B81F) || // CJK 统一表意文字扩展 D
-      (code >= 0x2B820 && code <= 0x2CEAF) || // CJK 统一表意文字扩展 E
-      (code >= 0xF900 && code <= 0xFAFF) || // CJK 兼容表意文字
-      (code >= 0x2F800 && code <= 0x2FA1F) // CJK 兼容表意文字补充
+      (code >= 0x4E00 && code <= 0x9FFF) ||
+      (code >= 0x3400 && code <= 0x4DBF) ||
+      (code >= 0x20000 && code <= 0x2A6DF) ||
+      (code >= 0x2A700 && code <= 0x2B73F) ||
+      (code >= 0x2B740 && code <= 0x2B81F) ||
+      (code >= 0x2B820 && code <= 0x2CEAF) ||
+      (code >= 0xF900 && code <= 0xFAFF) ||
+      (code >= 0x2F800 && code <= 0x2FA1F)
     );
   }
 }

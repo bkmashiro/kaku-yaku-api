@@ -322,7 +322,7 @@ export class JMDict {
    * 词条的汉字写法，可能包含多个变体
    */
   @Index()
-  @Column('simple-array', { nullable: true })
+  @Column('text', { array: true, nullable: true })
   keb: string[];
 
   /**
@@ -336,7 +336,7 @@ export class JMDict {
    * 汉字优先级
    * 表示该汉字表记在参考词典中的优先级
    */
-  @Column('simple-array', { nullable: true })
+  @Column('text', { array: true, nullable: true })
   ke_pri: string[];
 
   /**
@@ -344,21 +344,21 @@ export class JMDict {
    * 词条的假名读音，至少包含一个读音
    */
   @Index()
-  @Column('simple-array')
+  @Column('text', { array: true })
   reb: string[];
 
   /**
    * 无汉字标记
    * 表示该读音没有对应的汉字表记
    */
-  @Column('simple-array', { nullable: true })
+  @Column('text', { array: true, nullable: true })
   re_nokanji: string[];
 
   /**
    * 读音限制
    * 限制该读音只适用于特定的汉字表记
    */
-  @Column('simple-array', { nullable: true })
+  @Column('text', { array: true, nullable: true })
   re_restr: string[];
 
   /**
@@ -372,7 +372,7 @@ export class JMDict {
    * 读音优先级
    * 表示该读音在参考词典中的优先级
    */
-  @Column('simple-array', { nullable: true })
+  @Column('text', { array: true, nullable: true })
   re_pri: string[];
 
   /**
@@ -387,14 +387,14 @@ export class JMDict {
    * 交叉引用
    * 指向其他相关词条的引用
    */
-  @Column('simple-array', { nullable: true })
+  @Column('text', { array: true, nullable: true })
   xref: string[];
 
   /**
    * 反义词
    * 词条的反义词列表
    */
-  @Column('simple-array', { nullable: true })
+  @Column('text', { array: true, nullable: true })
   ant: string[];
 
   /**
@@ -417,14 +417,14 @@ export class JMDict {
    * 释义信息
    * 关于释义的补充信息
    */
-  @Column('simple-array', { nullable: true })
+  @Column('text', { array: true, nullable: true })
   s_inf: string[];
 
   /**
    * 词源
    * 外来词的来源语言信息
    */
-  @Column('simple-array', { nullable: true })
+  @Column('text', { array: true, nullable: true })
   lsource: string[];
 
   /**
@@ -440,7 +440,7 @@ export class JMDict {
    * 词条的释义，包含目标语言的翻译
    */
   @Index()
-  @Column('simple-array', { nullable: true })
+  @Column('text', { array: true, nullable: true })
   gloss: string[];
 
   /**

@@ -1,6 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import OpenAI from 'openai';
 
+function extractJson(text: string): string {
+  const match = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+  return match ? match[1].trim() : text.trim();
+}
+
 @Injectable()
 export class LlmService {
   private readonly logger = new Logger(LlmService.name);
@@ -69,7 +74,7 @@ Respond in JSON:
       });
       const content =
         res.choices[0].message.content || '{"translation":"","breakdown":""}';
-      return JSON.parse(content);
+      return JSON.parse(extractJson(content));
     } catch (error) {
       this.logger.error(`translateSentence failed: ${error.message}`);
       throw error;

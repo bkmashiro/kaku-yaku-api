@@ -26,6 +26,9 @@ export class TokenAnalysisResponseDto {
   @ApiProperty({ description: '词元字典形式' })
   dictionaryForm: string;
 
+  @ApiProperty({ description: 'Sudachi 归一化形式' })
+  normalizedForm: string;
+
   @ApiProperty({ description: '词元读音' })
   reading: string;
 
@@ -34,10 +37,16 @@ export class TokenAnalysisResponseDto {
 
   @ApiProperty({ description: '词性详细分类', type: [String] })
   posDetail: string[];
-  
+
+  @ApiProperty({ description: '是否为未登录词（词外词）' })
+  isOov: boolean;
+
+  @ApiProperty({ description: '前3个英语释义（快速展示）', type: [String] })
+  meanings: string[];
+
   @ApiProperty({ description: '日语词典条目', type: [Object], required: false })
   jmdict?: JMDict[];
-  
+
   @ApiProperty({ description: '汉字词典条目', type: Object, required: false })
   kanji?: KanjiDict | null;
 }
