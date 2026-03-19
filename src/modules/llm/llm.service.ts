@@ -6,6 +6,14 @@ function extractJson(text: string): string {
   return match ? match[1].trim() : text.trim();
 }
 
+export interface GrammarExplanation {
+  role: string;        // 词性/语法角色，e.g. "Counter suffix"
+  function: string;    // 在句中的作用
+  rule: string;        // 记忆规律
+  example: string;     // 例句（日语）
+  exampleTrans: string; // 例句翻译
+}
+
 @Injectable()
 export class LlmService {
   private readonly logger = new Logger(LlmService.name);
@@ -23,28 +31,32 @@ export class LlmService {
   }
 
   /**
-   * Explain a grammar point in context
+   * Explain a grammar point in context — returns structured JSON
    */
-  async explainGrammar(sentence: string, targetWord: string): Promise<string> {
-    const prompt = `You are a Japanese language tutor. The student is reading: "${sentence}"
+  async explainGrammar(sentence: string, targetWord: string): Promise<GrammarExplanation> {
+    const prompt = `You are a Japanese language tutor. The student is reading:
+"${sentence}"
 
-They want to understand the usage of "${targetWord}" in this context.
+Explain the word/pattern "${targetWord}" in this context.
 
-Please explain:
-1. What grammar pattern or role "${targetWord}" plays
-2. How it functions in this sentence
-3. A simple rule to remember this usage
-4. One similar example sentence
-
-Reply in English. Be concise (under 150 words).`;
+Respond ONLY with valid JSON (no markdown):
+{
+  "role": "grammar role or part of speech in one short phrase",
+  "function": "one sentence: how it functions in this specific sentence",
+  "rule": "one sentence: the general rule or pattern to remember",
+  "example": "one Japanese example sentence using this pattern",
+  "exampleTrans": "English translation of the example"
+}`;
 
     try {
       const res = await this.client.chat.completions.create({
         model: this.model,
         messages: [{ role: 'user', content: prompt }],
-        max_tokens: 350,
+        response_format: { type: 'json_object' },
+        max_tokens: 300,
       });
-      return res.choices[0].message.content || '';
+      const content = res.choices[0].message.content || '{}';
+      return JSON.parse(extractJson(content));
     } catch (error) {
       this.logger.error(`explainGrammar failed: ${error.message}`);
       throw error;
@@ -52,18 +64,22 @@ Reply in English. Be concise (under 150 words).`;
   }
 
   /**
-   * Translate a Japanese sentence with breakdown
+   * Translate a Japanese sentence with word-by-word breakdown
    */
   async translateSentence(
     sentence: string,
-  ): Promise<{ translation: string; breakdown: string }> {
-    const prompt = `Translate this Japanese sentence naturally: "${sentence}"
+  ): Promise<{ translation: string; chunks: Array<{ jp: string; en: string }> }> {
+    const prompt = `Translate this Japanese sentence: "${sentence}"
 
-Respond in JSON:
+Respond ONLY with valid JSON (no markdown):
 {
   "translation": "natural English translation",
-  "breakdown": "brief chunk-by-chunk breakdown showing how the meaning is built"
-}`;
+  "chunks": [
+    { "jp": "Japanese chunk", "en": "English meaning" }
+  ]
+}
+
+Split into 3-6 meaningful chunks.`;
 
     try {
       const res = await this.client.chat.completions.create({
@@ -72,8 +88,7 @@ Respond in JSON:
         response_format: { type: 'json_object' },
         max_tokens: 400,
       });
-      const content =
-        res.choices[0].message.content || '{"translation":"","breakdown":""}';
+      const content = res.choices[0].message.content || '{"translation":"","chunks":[]}';
       return JSON.parse(extractJson(content));
     } catch (error) {
       this.logger.error(`translateSentence failed: ${error.message}`);
