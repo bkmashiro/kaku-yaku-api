@@ -11,6 +11,7 @@ import { RawModule } from './modules/raw/raw.module';
 import { join } from 'path';
 import { SudachiModule } from './modules/sudachi/sudachi.module';
 import { AnalysisModule } from './modules/analysis/analysis.module';
+import { HealthModule } from './modules/health/health.module';
 
 @Module({
   imports: [
@@ -46,6 +47,7 @@ import { AnalysisModule } from './modules/analysis/analysis.module';
     RawModule,
     SudachiModule,
     AnalysisModule,
+    HealthModule,
   ],
   controllers: [AppController],
   providers: [AppService],
