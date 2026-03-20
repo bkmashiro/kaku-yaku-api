@@ -35,11 +35,18 @@ export class LlmService {
         messages: [
           {
             role: 'system',
-            content: `You are a Japanese language tutor. Always respond with valid JSON only. Use ${lang} for all explanatory text. JSON schema: { "role": string, "function": string, "rule": string, "example": string (Japanese), "exampleTrans": string }`,
+            content: `You are a Japanese grammar assistant. Respond ONLY with a JSON object with these exact keys:
+- "role": part of speech or grammar category (e.g. "名詞", "助動詞", "proper noun") — one short phrase in ${lang}
+- "function": what this word does in the sentence — one sentence in ${lang}
+- "rule": grammar rule or memory tip — one sentence in ${lang}
+- "example": a short Japanese example sentence
+- "exampleTrans": translation of the example in ${lang}
+
+If the word is a proper noun or brand name, set role to "固有名詞 (proper noun)" and keep all explanations brief.`,
           },
           {
             role: 'user',
-            content: `Sentence: "${sentence}"\nExplain the word/pattern: "${targetWord}"`,
+            content: `Sentence: "${sentence}"\nWord to explain: "${targetWord}"`,
           },
         ],
         response_format: { type: 'json_object' },
