@@ -53,6 +53,12 @@ export class AnkiVocab {
     @Column({ name: 'added_at', type: 'timestamp', default: () => 'now()' })
     addedAt: Date;
 
+    @Column({ name: 'interval_days', type: 'int', default: 1 })
+    intervalDays: number;
+
+    @Column({ name: 'next_review', type: 'timestamp', nullable: true })
+    nextReview: Date | null;
+
     @OneToMany(() => AnkiSentence, sentence => sentence.vocab, {
         onDelete: 'CASCADE',
         cascade: true

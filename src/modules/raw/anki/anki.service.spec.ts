@@ -40,6 +40,7 @@ describe('AnkiService', () => {
             findOne: jest.fn(),
             save: jest.fn(),
             delete: jest.fn(),
+            count: jest.fn(),
           },
         },
       ],
@@ -101,6 +102,88 @@ describe('AnkiService', () => {
     await expect(service.markReviewed('missing')).rejects.toBeInstanceOf(NotFoundException);
   });
 
+  it('getDueVocab returns vocab with empty or overdue nextReview', async () => {
+    repository.find.mockResolvedValue([{ noteId: 'due-1' }] as AnkiVocab[]);
+
+    const result = await service.getDueVocab();
+
+    expect(repository.find).toHaveBeenCalledWith({
+      where: expect.any(Array),
+      relations: ['sentences'],
+      order: {
+        nextReview: 'ASC',
+        reviewCount: 'ASC',
+        addedAt: 'ASC',
+      },
+      take: 20,
+    });
+    expect(result).toEqual([{ noteId: 'due-1' }]);
+  });
+
+  it('reviewVocab doubles interval and schedules next review when known', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-03-21T10:00:00.000Z'));
+    repository.findOne.mockResolvedValue({
+      noteId: 'known-1',
+      reviewCount: 2,
+      intervalDays: 4,
+      isKnown: false,
+      nextReview: null,
+    } as AnkiVocab);
+    repository.save.mockImplementation(async (value) => value as AnkiVocab);
+
+    const result = await service.reviewVocab('known-1', true);
+
+    expect(repository.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        noteId: 'known-1',
+        reviewCount: 3,
+        intervalDays: 8,
+        isKnown: true,
+        nextReview: new Date('2026-03-29T10:00:00.000Z'),
+      }),
+    );
+    expect(result.intervalDays).toBe(8);
+    expect(result.nextReview).toEqual(new Date('2026-03-29T10:00:00.000Z'));
+    jest.useRealTimers();
+  });
+
+  it('reviewVocab resets interval to one day when unknown', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-03-21T10:00:00.000Z'));
+    repository.findOne.mockResolvedValue({
+      noteId: 'unknown-1',
+      reviewCount: 5,
+      intervalDays: 16,
+      isKnown: true,
+      nextReview: null,
+    } as AnkiVocab);
+    repository.save.mockImplementation(async (value) => value as AnkiVocab);
+
+    const result = await service.reviewVocab('unknown-1', false);
+
+    expect(repository.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        noteId: 'unknown-1',
+        reviewCount: 6,
+        intervalDays: 1,
+        isKnown: false,
+        nextReview: new Date('2026-03-22T10:00:00.000Z'),
+      }),
+    );
+    expect(result.intervalDays).toBe(1);
+    expect(result.nextReview).toEqual(new Date('2026-03-22T10:00:00.000Z'));
+    jest.useRealTimers();
+  });
+
+  it('reviewVocab rejects non-boolean known values', async () => {
+    await expect(service.reviewVocab('bad-1', undefined as never)).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('reviewVocab throws when vocab does not exist', async () => {
+    repository.findOne.mockResolvedValue(null);
+
+    await expect(service.reviewVocab('missing', true)).rejects.toBeInstanceOf(NotFoundException);
+  });
+
   it('markKnown sets isKnown to true', async () => {
     repository.findOne.mockResolvedValue({ noteId: '4', isKnown: false } as AnkiVocab);
     repository.save.mockResolvedValue({ noteId: '4', isKnown: true } as AnkiVocab);
@@ -123,5 +206,25 @@ describe('AnkiService', () => {
     repository.delete.mockResolvedValue({ affected: 0 } as DeleteResult);
 
     await expect(service.deleteVocab('missing')).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('getSrsStats returns due count, learned count, and retention rate', async () => {
+    const dueBuilder = createQueryBuilder();
+    const reviewedBuilder = createQueryBuilder();
+    repository.createQueryBuilder
+      .mockReturnValueOnce(dueBuilder as never)
+      .mockReturnValueOnce(reviewedBuilder as never);
+    dueBuilder.getCount.mockResolvedValue(3);
+    reviewedBuilder.getCount.mockResolvedValue(8);
+    repository.count.mockResolvedValue(4);
+
+    await expect(service.getSrsStats()).resolves.toEqual({
+      due_today: 3,
+      learned: 4,
+      retention_rate: 0.5,
+    });
+
+    expect(repository.count).toHaveBeenCalledWith({ where: { isKnown: true } });
+    expect(reviewedBuilder.where).toHaveBeenCalledWith('vocab.reviewCount > 0');
   });
 });

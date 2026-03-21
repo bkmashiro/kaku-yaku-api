@@ -7,6 +7,9 @@ describe('VocabController', () => {
   const ankiService = {
     searchVocab: jest.fn(),
     getReviewVocab: jest.fn(),
+    getDueVocab: jest.fn(),
+    getSrsStats: jest.fn(),
+    reviewVocab: jest.fn(),
     markReviewed: jest.fn(),
     markKnown: jest.fn(),
     deleteVocab: jest.fn(),
@@ -40,6 +43,38 @@ describe('VocabController', () => {
 
     await expect(controller.review()).resolves.toEqual([{ noteId: '2', kanji: '犬' }]);
     expect(ankiService.getReviewVocab).toHaveBeenCalledTimes(1);
+  });
+
+  it('due returns due vocab from the service', async () => {
+    ankiService.getDueVocab.mockResolvedValue([{ noteId: 'due-1', kanji: '鳥' }]);
+
+    await expect(controller.due()).resolves.toEqual([{ noteId: 'due-1', kanji: '鳥' }]);
+    expect(ankiService.getDueVocab).toHaveBeenCalledTimes(1);
+  });
+
+  it('getSrsStats returns stats from the service', async () => {
+    ankiService.getSrsStats.mockResolvedValue({
+      due_today: 3,
+      learned: 10,
+      retention_rate: 0.5,
+    });
+
+    await expect(controller.getSrsStats()).resolves.toEqual({
+      due_today: 3,
+      learned: 10,
+      retention_rate: 0.5,
+    });
+    expect(ankiService.getSrsStats).toHaveBeenCalledTimes(1);
+  });
+
+  it('reviewResult delegates note id and known flag', async () => {
+    ankiService.reviewVocab.mockResolvedValue({ noteId: 'review-1', intervalDays: 2 });
+
+    await expect(controller.reviewResult('review-1', { known: true })).resolves.toEqual({
+      noteId: 'review-1',
+      intervalDays: 2,
+    });
+    expect(ankiService.reviewVocab).toHaveBeenCalledWith('review-1', true);
   });
 
   it('markReviewed delegates note id', async () => {

@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Brackets, IsNull, LessThanOrEqual, Repository } from 'typeorm';
 import { AnkiVocab } from '../entities/anki-vocab.entity';
 
 export interface PaginationOptions {
@@ -20,6 +20,12 @@ export interface FilterOptions {
   pos?: string[];
   jlpt?: string[];
   keyword?: string;
+}
+
+export interface SrsStats {
+  due_today: number;
+  learned: number;
+  retention_rate: number;
 }
 
 @Injectable()
@@ -61,6 +67,24 @@ export class AnkiService {
     });
   }
 
+  async getDueVocab(limit = 20): Promise<AnkiVocab[]> {
+    const now = new Date();
+
+    return this.ankiVocabRepository.find({
+      where: [
+        { nextReview: IsNull() },
+        { nextReview: LessThanOrEqual(now) },
+      ],
+      relations: ['sentences'],
+      order: {
+        nextReview: 'ASC',
+        reviewCount: 'ASC',
+        addedAt: 'ASC',
+      },
+      take: limit,
+    });
+  }
+
   async markReviewed(noteId: string): Promise<AnkiVocab> {
     const vocab = await this.ankiVocabRepository.findOne({ where: { noteId } });
 
@@ -69,6 +93,30 @@ export class AnkiService {
     }
 
     vocab.reviewCount += 1;
+    return this.ankiVocabRepository.save(vocab);
+  }
+
+  async reviewVocab(noteId: string, known: boolean): Promise<AnkiVocab> {
+    if (typeof known !== 'boolean') {
+      throw new BadRequestException('"known" must be a boolean');
+    }
+
+    const vocab = await this.ankiVocabRepository.findOne({ where: { noteId } });
+
+    if (!vocab) {
+      throw new NotFoundException(`Vocab "${noteId}" not found`);
+    }
+
+    const now = new Date();
+    const intervalDays = known
+      ? Math.min((vocab.intervalDays ?? 1) * 2, 365)
+      : 1;
+
+    vocab.reviewCount += 1;
+    vocab.isKnown = known;
+    vocab.intervalDays = intervalDays;
+    vocab.nextReview = new Date(now.getTime() + intervalDays * 24 * 60 * 60 * 1000);
+
     return this.ankiVocabRepository.save(vocab);
   }
 
@@ -89,6 +137,32 @@ export class AnkiService {
     if (!result.affected) {
       throw new NotFoundException(`Vocab "${noteId}" not found`);
     }
+  }
+
+  async getSrsStats(): Promise<SrsStats> {
+    const now = new Date();
+
+    const dueToday = await this.ankiVocabRepository
+      .createQueryBuilder('vocab')
+      .where(
+        new Brackets((qb) => {
+          qb.where('vocab.nextReview IS NULL').orWhere('vocab.nextReview <= :now', { now });
+        }),
+      )
+      .getCount();
+
+    const learned = await this.ankiVocabRepository.count({ where: { isKnown: true } });
+
+    const reviewed = await this.ankiVocabRepository
+      .createQueryBuilder('vocab')
+      .where('vocab.reviewCount > 0')
+      .getCount();
+
+    return {
+      due_today: dueToday,
+      learned,
+      retention_rate: reviewed === 0 ? 0 : Number((learned / reviewed).toFixed(4)),
+    };
   }
 
   /**
