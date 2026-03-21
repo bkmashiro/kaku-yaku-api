@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AnkiVocab } from '../entities/anki-vocab.entity';
@@ -28,6 +28,68 @@ export class AnkiService {
     @InjectRepository(AnkiVocab)
     private ankiVocabRepository: Repository<AnkiVocab>,
   ) {}
+
+  async searchVocab(query: string): Promise<AnkiVocab[]> {
+    const keyword = query.trim();
+
+    if (!keyword) {
+      throw new BadRequestException('Query parameter "q" is required');
+    }
+
+    return this.ankiVocabRepository
+      .createQueryBuilder('vocab')
+      .leftJoinAndSelect('vocab.sentences', 'sentences')
+      .where(
+        '(vocab.kanji ILIKE :keyword OR vocab.reading ILIKE :keyword OR vocab.definitionCn ILIKE :keyword OR vocab.definitionTc ILIKE :keyword)',
+        { keyword: `%${keyword}%` },
+      )
+      .orderBy('vocab.frequency', 'DESC', 'NULLS LAST')
+      .addOrderBy('vocab.reviewCount', 'ASC')
+      .addOrderBy('vocab.kanji', 'ASC')
+      .getMany();
+  }
+
+  async getReviewVocab(limit = 20): Promise<AnkiVocab[]> {
+    return this.ankiVocabRepository.find({
+      where: { isKnown: false },
+      relations: ['sentences'],
+      order: {
+        reviewCount: 'ASC',
+        addedAt: 'ASC',
+      },
+      take: limit,
+    });
+  }
+
+  async markReviewed(noteId: string): Promise<AnkiVocab> {
+    const vocab = await this.ankiVocabRepository.findOne({ where: { noteId } });
+
+    if (!vocab) {
+      throw new NotFoundException(`Vocab "${noteId}" not found`);
+    }
+
+    vocab.reviewCount += 1;
+    return this.ankiVocabRepository.save(vocab);
+  }
+
+  async markKnown(noteId: string): Promise<AnkiVocab> {
+    const vocab = await this.ankiVocabRepository.findOne({ where: { noteId } });
+
+    if (!vocab) {
+      throw new NotFoundException(`Vocab "${noteId}" not found`);
+    }
+
+    vocab.isKnown = true;
+    return this.ankiVocabRepository.save(vocab);
+  }
+
+  async deleteVocab(noteId: string): Promise<void> {
+    const result = await this.ankiVocabRepository.delete({ noteId });
+
+    if (!result.affected) {
+      throw new NotFoundException(`Vocab "${noteId}" not found`);
+    }
+  }
 
   /**
    * 根据词性查找词汇列表
