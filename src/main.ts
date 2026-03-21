@@ -2,6 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { DocumentBuilder } from '@nestjs/swagger';
 import { SwaggerModule } from '@nestjs/swagger';
+import * as express from 'express';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -15,6 +16,7 @@ async function bootstrap() {
   const documentFactory = () => SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api', app, documentFactory);
 
+  app.use('/api/vocab/import', express.text({ type: ['text/csv', 'text/plain'] }));
   app.setGlobalPrefix('api');
 
   await app.listen(3001);

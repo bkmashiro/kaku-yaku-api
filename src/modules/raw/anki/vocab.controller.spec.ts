@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { Response } from 'express';
 import { VocabController } from './vocab.controller';
 import { AnkiService } from './anki.service';
 
@@ -9,6 +10,8 @@ describe('VocabController', () => {
     getReviewVocab: jest.fn(),
     getDueVocab: jest.fn(),
     getSrsStats: jest.fn(),
+    importVocab: jest.fn(),
+    exportVocab: jest.fn(),
     reviewVocab: jest.fn(),
     markReviewed: jest.fn(),
     markKnown: jest.fn(),
@@ -65,6 +68,28 @@ describe('VocabController', () => {
       retention_rate: 0.5,
     });
     expect(ankiService.getSrsStats).toHaveBeenCalledTimes(1);
+  });
+
+  it('importVocab delegates payload format based on content type', async () => {
+    ankiService.importVocab.mockResolvedValue({ imported: 1, skipped: 0, errors: [] });
+
+    await expect(controller.importVocab('word,reading,meaning,tags', 'text/csv')).resolves.toEqual({
+      imported: 1,
+      skipped: 0,
+      errors: [],
+    });
+    expect(ankiService.importVocab).toHaveBeenCalledWith('word,reading,meaning,tags', 'csv');
+  });
+
+  it('exportVocab sets CSV header and delegates format', async () => {
+    const response = {
+      setHeader: jest.fn(),
+    } as unknown as Response;
+    ankiService.exportVocab.mockResolvedValue('csv-content');
+
+    await expect(controller.exportVocab('csv', response)).resolves.toBe('csv-content');
+    expect(response.setHeader).toHaveBeenCalledWith('Content-Type', 'text/csv; charset=utf-8');
+    expect(ankiService.exportVocab).toHaveBeenCalledWith('csv');
   });
 
   it('reviewResult delegates note id and known flag', async () => {

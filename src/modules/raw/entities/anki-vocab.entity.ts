@@ -44,6 +44,9 @@ export class AnkiVocab {
     @Column({ nullable: true, type: 'text', array: true })
     jlpt: string[];
 
+    @Column({ nullable: true, type: 'text', array: true })
+    tags: string[];
+
     @Column({ name: 'review_count', type: 'int', default: 0 })
     reviewCount: number;
 
@@ -58,6 +61,9 @@ export class AnkiVocab {
 
     @Column({ name: 'next_review', type: 'timestamp', nullable: true })
     nextReview: Date | null;
+
+    @Column({ name: 'last_reviewed', type: 'timestamp', nullable: true })
+    lastReviewed: Date | null;
 
     @OneToMany(() => AnkiSentence, sentence => sentence.vocab, {
         onDelete: 'CASCADE',

@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Brackets, IsNull, LessThanOrEqual, Repository } from 'typeorm';
+import { Brackets, In, IsNull, LessThanOrEqual, Repository } from 'typeorm';
 import { AnkiVocab } from '../entities/anki-vocab.entity';
 
 export interface PaginationOptions {
@@ -26,6 +26,37 @@ export interface SrsStats {
   due_today: number;
   learned: number;
   retention_rate: number;
+}
+
+export interface VocabImportItem {
+  word: string;
+  reading?: string | null;
+  meaning?: string | null;
+  tags?: string[] | null;
+}
+
+export interface VocabImportError {
+  row: number;
+  message: string;
+}
+
+export interface VocabImportResult {
+  imported: number;
+  skipped: number;
+  errors: VocabImportError[];
+}
+
+export interface ExportedVocabItem {
+  word: string;
+  reading: string | null;
+  meaning: string | null;
+  tags: string[];
+  review_count: number;
+  is_known: boolean;
+  added_at: string | null;
+  last_reviewed: string | null;
+  interval_days: number;
+  next_review: string | null;
 }
 
 @Injectable()
@@ -93,6 +124,7 @@ export class AnkiService {
     }
 
     vocab.reviewCount += 1;
+    vocab.lastReviewed = new Date();
     return this.ankiVocabRepository.save(vocab);
   }
 
@@ -115,9 +147,99 @@ export class AnkiService {
     vocab.reviewCount += 1;
     vocab.isKnown = known;
     vocab.intervalDays = intervalDays;
+    vocab.lastReviewed = now;
     vocab.nextReview = new Date(now.getTime() + intervalDays * 24 * 60 * 60 * 1000);
 
     return this.ankiVocabRepository.save(vocab);
+  }
+
+  async importVocab(
+    payload: VocabImportItem[] | string,
+    format: 'json' | 'csv',
+  ): Promise<VocabImportResult> {
+    const errors: VocabImportError[] = [];
+    const parsedItems = format === 'csv' ? this.parseImportCsv(payload) : this.parseImportJson(payload);
+    const seenWords = new Set<string>();
+    const validItems: VocabImportItem[] = [];
+    let skipped = 0;
+
+    parsedItems.forEach((item, index) => {
+      const row = index + 1;
+      const normalized = this.normalizeImportItem(item);
+
+      if (!normalized.word) {
+        errors.push({ row, message: 'word is required' });
+        return;
+      }
+
+      if (seenWords.has(normalized.word)) {
+        skipped += 1;
+        return;
+      }
+
+      seenWords.add(normalized.word);
+      validItems.push(normalized);
+    });
+
+    if (validItems.length === 0) {
+      return { imported: 0, skipped, errors };
+    }
+
+    const existing = await this.ankiVocabRepository.find({
+      where: { kanji: In(validItems.map((item) => item.word)) },
+    });
+    const existingWords = new Set(existing.map((item) => item.kanji));
+
+    const newItems = validItems.filter((item) => {
+      if (existingWords.has(item.word)) {
+        skipped += 1;
+        return false;
+      }
+
+      return true;
+    });
+
+    if (newItems.length === 0) {
+      return { imported: 0, skipped, errors };
+    }
+
+    const entities = newItems.map((item) => {
+      const vocab = new AnkiVocab();
+      vocab.kanji = item.word;
+      vocab.reading = item.reading ?? null;
+      vocab.definitionCn = item.meaning ?? null;
+      vocab.tags = item.tags ?? null;
+      vocab.reviewCount = 0;
+      vocab.isKnown = false;
+      vocab.intervalDays = 1;
+      vocab.nextReview = null;
+      vocab.lastReviewed = null;
+      return vocab;
+    });
+
+    await this.ankiVocabRepository.save(entities);
+
+    return {
+      imported: entities.length,
+      skipped,
+      errors,
+    };
+  }
+
+  async exportVocab(format: 'json' | 'csv' = 'json'): Promise<ExportedVocabItem[] | string> {
+    const vocabList = await this.ankiVocabRepository.find({
+      order: {
+        addedAt: 'ASC',
+        kanji: 'ASC',
+      },
+    });
+    const exported = vocabList.map((item) => this.toExportItem(item));
+
+    if (format === 'csv') {
+      return this.buildExportCsv(exported);
+    }
+
+    return exported;
   }
 
   async markKnown(noteId: string): Promise<AnkiVocab> {
@@ -163,6 +285,160 @@ export class AnkiService {
       learned,
       retention_rate: reviewed === 0 ? 0 : Number((learned / reviewed).toFixed(4)),
     };
+  }
+
+  private parseImportJson(payload: VocabImportItem[] | string): VocabImportItem[] {
+    if (!Array.isArray(payload)) {
+      throw new BadRequestException('JSON payload must be an array');
+    }
+
+    return payload;
+  }
+
+  private parseImportCsv(payload: VocabImportItem[] | string): VocabImportItem[] {
+    if (typeof payload !== 'string') {
+      throw new BadRequestException('CSV payload must be a string');
+    }
+
+    const lines = payload
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+
+    if (lines.length === 0) {
+      return [];
+    }
+
+    const [headerLine, ...rows] = lines;
+    const headers = this.parseCsvLine(headerLine).map((header) => header.toLowerCase());
+
+    if (headers.join(',') !== 'word,reading,meaning,tags') {
+      throw new BadRequestException('CSV header must be: word,reading,meaning,tags');
+    }
+
+    return rows.map((line) => {
+      const [word = '', reading = '', meaning = '', tags = ''] = this.parseCsvLine(line);
+      return {
+        word,
+        reading,
+        meaning,
+        tags: this.parseTags(tags),
+      };
+    });
+  }
+
+  private normalizeImportItem(item: VocabImportItem): VocabImportItem {
+    const word = typeof item?.word === 'string' ? item.word.trim() : '';
+    const reading = typeof item?.reading === 'string' ? item.reading.trim() : null;
+    const meaning = typeof item?.meaning === 'string' ? item.meaning.trim() : null;
+    const tags = Array.isArray(item?.tags)
+      ? item.tags
+          .map((tag) => (typeof tag === 'string' ? tag.trim() : ''))
+          .filter((tag) => tag.length > 0)
+      : [];
+
+    return {
+      word,
+      reading: reading || null,
+      meaning: meaning || null,
+      tags,
+    };
+  }
+
+  private parseTags(rawTags: string): string[] {
+    if (!rawTags.trim()) {
+      return [];
+    }
+
+    return rawTags
+      .split('|')
+      .map((tag) => tag.trim())
+      .filter((tag) => tag.length > 0);
+  }
+
+  private parseCsvLine(line: string): string[] {
+    const columns: string[] = [];
+    let current = '';
+    let inQuotes = false;
+
+    for (let index = 0; index < line.length; index += 1) {
+      const char = line[index];
+
+      if (char === '"') {
+        if (inQuotes && line[index + 1] === '"') {
+          current += '"';
+          index += 1;
+        } else {
+          inQuotes = !inQuotes;
+        }
+        continue;
+      }
+
+      if (char === ',' && !inQuotes) {
+        columns.push(current.trim());
+        current = '';
+        continue;
+      }
+
+      current += char;
+    }
+
+    columns.push(current.trim());
+    return columns;
+  }
+
+  private toExportItem(item: AnkiVocab): ExportedVocabItem {
+    return {
+      word: item.kanji,
+      reading: item.reading ?? null,
+      meaning: item.definitionCn ?? item.definitionTc ?? null,
+      tags: item.tags ?? [],
+      review_count: item.reviewCount,
+      is_known: item.isKnown,
+      added_at: item.addedAt ? item.addedAt.toISOString() : null,
+      last_reviewed: item.lastReviewed ? item.lastReviewed.toISOString() : null,
+      interval_days: item.intervalDays ?? 1,
+      next_review: item.nextReview ? item.nextReview.toISOString() : null,
+    };
+  }
+
+  private buildExportCsv(items: ExportedVocabItem[]): string {
+    const header = [
+      'word',
+      'reading',
+      'meaning',
+      'tags',
+      'review_count',
+      'is_known',
+      'added_at',
+      'last_reviewed',
+      'interval_days',
+      'next_review',
+    ];
+    const rows = items.map((item) => [
+      item.word,
+      item.reading ?? '',
+      item.meaning ?? '',
+      item.tags.join('|'),
+      String(item.review_count),
+      String(item.is_known),
+      item.added_at ?? '',
+      item.last_reviewed ?? '',
+      String(item.interval_days),
+      item.next_review ?? '',
+    ]);
+
+    return [header, ...rows]
+      .map((row) => row.map((value) => this.escapeCsvValue(value)).join(','))
+      .join('\n');
+  }
+
+  private escapeCsvValue(value: string): string {
+    if (!/[",\n]/.test(value)) {
+      return value;
+    }
+
+    return `"${value.replace(/"/g, '""')}"`;
   }
 
   /**

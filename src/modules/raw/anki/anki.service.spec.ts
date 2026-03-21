@@ -87,13 +87,24 @@ describe('AnkiService', () => {
   });
 
   it('markReviewed increments reviewCount and saves', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-03-21T10:00:00.000Z'));
     repository.findOne.mockResolvedValue({ noteId: '3', reviewCount: 1 } as AnkiVocab);
-    repository.save.mockResolvedValue({ noteId: '3', reviewCount: 2 } as AnkiVocab);
+    repository.save.mockResolvedValue({
+      noteId: '3',
+      reviewCount: 2,
+      lastReviewed: new Date('2026-03-21T10:00:00.000Z'),
+    } as AnkiVocab);
 
     const result = await service.markReviewed('3');
 
-    expect(repository.save).toHaveBeenCalledWith({ noteId: '3', reviewCount: 2 });
+    expect(repository.save).toHaveBeenCalledWith({
+      noteId: '3',
+      reviewCount: 2,
+      lastReviewed: new Date('2026-03-21T10:00:00.000Z'),
+    });
     expect(result.reviewCount).toBe(2);
+    expect(result.lastReviewed).toEqual(new Date('2026-03-21T10:00:00.000Z'));
+    jest.useRealTimers();
   });
 
   it('markReviewed throws when vocab does not exist', async () => {
@@ -139,6 +150,7 @@ describe('AnkiService', () => {
         reviewCount: 3,
         intervalDays: 8,
         isKnown: true,
+        lastReviewed: new Date('2026-03-21T10:00:00.000Z'),
         nextReview: new Date('2026-03-29T10:00:00.000Z'),
       }),
     );
@@ -166,6 +178,7 @@ describe('AnkiService', () => {
         reviewCount: 6,
         intervalDays: 1,
         isKnown: false,
+        lastReviewed: new Date('2026-03-21T10:00:00.000Z'),
         nextReview: new Date('2026-03-22T10:00:00.000Z'),
       }),
     );
@@ -226,5 +239,121 @@ describe('AnkiService', () => {
 
     expect(repository.count).toHaveBeenCalledWith({ where: { isKnown: true } });
     expect(reviewedBuilder.where).toHaveBeenCalledWith('vocab.reviewCount > 0');
+  });
+
+  it('importVocab imports JSON vocab, skips duplicates, and reports errors', async () => {
+    repository.find.mockResolvedValue([{ kanji: '犬' }] as AnkiVocab[]);
+    repository.save.mockImplementation(async (value) => value as never);
+
+    await expect(
+      service.importVocab(
+        [
+          { word: '猫', reading: 'ねこ', meaning: 'cat', tags: ['animal', ' pet '] },
+          { word: '猫', reading: 'ねこ', meaning: 'duplicate' },
+          { word: '犬', reading: 'いぬ', meaning: 'dog' },
+          { word: '  ', reading: 'blank', meaning: 'invalid' },
+        ],
+        'json',
+      ),
+    ).resolves.toEqual({
+      imported: 1,
+      skipped: 2,
+      errors: [{ row: 4, message: 'word is required' }],
+    });
+
+    expect(repository.find).toHaveBeenCalledWith({
+      where: { kanji: expect.anything() },
+    });
+    expect(repository.save).toHaveBeenCalledWith([
+      expect.objectContaining({
+        kanji: '猫',
+        reading: 'ねこ',
+        definitionCn: 'cat',
+        tags: ['animal', 'pet'],
+        reviewCount: 0,
+        isKnown: false,
+        intervalDays: 1,
+        nextReview: null,
+        lastReviewed: null,
+      }),
+    ]);
+  });
+
+  it('importVocab parses CSV payload and imports rows', async () => {
+    repository.find.mockResolvedValue([]);
+    repository.save.mockImplementation(async (value) => value as never);
+
+    const result = await service.importVocab(
+      'word,reading,meaning,tags\n"勉強","べんきょう","study, practice","jlpt-n5|school"',
+      'csv',
+    );
+
+    expect(result).toEqual({
+      imported: 1,
+      skipped: 0,
+      errors: [],
+    });
+    expect(repository.save).toHaveBeenCalledWith([
+      expect.objectContaining({
+        kanji: '勉強',
+        reading: 'べんきょう',
+        definitionCn: 'study, practice',
+        tags: ['jlpt-n5', 'school'],
+      }),
+    ]);
+  });
+
+  it('exportVocab returns JSON rows with SRS fields', async () => {
+    repository.find.mockResolvedValue([
+      {
+        kanji: '猫',
+        reading: 'ねこ',
+        definitionCn: 'cat',
+        tags: ['animal'],
+        reviewCount: 3,
+        isKnown: true,
+        addedAt: new Date('2026-03-20T10:00:00.000Z'),
+        lastReviewed: new Date('2026-03-21T09:00:00.000Z'),
+        intervalDays: 4,
+        nextReview: new Date('2026-03-25T09:00:00.000Z'),
+      },
+    ] as AnkiVocab[]);
+
+    await expect(service.exportVocab('json')).resolves.toEqual([
+      {
+        word: '猫',
+        reading: 'ねこ',
+        meaning: 'cat',
+        tags: ['animal'],
+        review_count: 3,
+        is_known: true,
+        added_at: '2026-03-20T10:00:00.000Z',
+        last_reviewed: '2026-03-21T09:00:00.000Z',
+        interval_days: 4,
+        next_review: '2026-03-25T09:00:00.000Z',
+      },
+    ]);
+  });
+
+  it('exportVocab returns CSV rows with escaped values', async () => {
+    repository.find.mockResolvedValue([
+      {
+        kanji: '勉強',
+        reading: 'べんきょう',
+        definitionCn: 'study, "practice"',
+        tags: ['jlpt-n5', 'school'],
+        reviewCount: 1,
+        isKnown: false,
+        addedAt: new Date('2026-03-20T10:00:00.000Z'),
+        lastReviewed: null,
+        intervalDays: 1,
+        nextReview: null,
+      },
+    ] as AnkiVocab[]);
+
+    await expect(service.exportVocab('csv')).resolves.toBe(
+      'word,reading,meaning,tags,review_count,is_known,added_at,last_reviewed,interval_days,next_review\n' +
+        '勉強,べんきょう,"study, ""practice""",jlpt-n5|school,1,false,2026-03-20T10:00:00.000Z,,1,',
+    );
   });
 });

@@ -3,12 +3,15 @@ import {
   Controller,
   Delete,
   Get,
+  Headers,
   HttpCode,
   Param,
   Patch,
   Post,
   Query,
+  Res,
 } from '@nestjs/common';
+import { Response } from 'express';
 import { AnkiService } from './anki.service';
 import { ReviewVocabDto } from './dto/review-vocab.dto';
 
@@ -34,6 +37,29 @@ export class VocabController {
   @Get('stats/srs')
   async getSrsStats() {
     return this.ankiService.getSrsStats();
+  }
+
+  @Post('import')
+  async importVocab(
+    @Body() body: unknown,
+    @Headers('content-type') contentType?: string,
+  ) {
+    const format = typeof body === 'string' || contentType?.includes('csv') ? 'csv' : 'json';
+    return this.ankiService.importVocab(body as never, format);
+  }
+
+  @Get('export')
+  async exportVocab(
+    @Query('format') format: 'json' | 'csv' = 'json',
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const normalizedFormat = format === 'csv' ? 'csv' : 'json';
+
+    if (normalizedFormat === 'csv') {
+      response.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    }
+
+    return this.ankiService.exportVocab(normalizedFormat);
   }
 
   @Post(':id/review')
