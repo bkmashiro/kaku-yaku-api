@@ -1,5 +1,5 @@
 import {
-    Entity, Column, PrimaryGeneratedColumn, OneToMany
+    Entity, Column, PrimaryGeneratedColumn, OneToMany, CreateDateColumn
 } from 'typeorm';
 import { AnkiSentence } from './anki-sentence.entity';
 
@@ -43,6 +43,15 @@ export class AnkiVocab {
 
     @Column({ nullable: true, type: 'text', array: true })
     jlpt: string[];
+
+    @Column({ name: 'review_count', type: 'int', default: 0 })
+    reviewCount: number;
+
+    @Column({ name: 'is_known', type: 'boolean', default: false })
+    isKnown: boolean;
+
+    @Column({ name: 'added_at', type: 'timestamp', default: () => 'now()' })
+    addedAt: Date;
 
     @OneToMany(() => AnkiSentence, sentence => sentence.vocab, {
         onDelete: 'CASCADE',

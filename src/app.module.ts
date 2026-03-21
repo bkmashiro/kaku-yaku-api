@@ -12,6 +12,7 @@ import { join } from 'path';
 import { SudachiModule } from './modules/sudachi/sudachi.module';
 import { AnalysisModule } from './modules/analysis/analysis.module';
 import { HealthModule } from './modules/health/health.module';
+import { StatsModule } from './modules/stats/stats.module';
 
 @Module({
   imports: [
@@ -48,6 +49,7 @@ import { HealthModule } from './modules/health/health.module';
     SudachiModule,
     AnalysisModule,
     HealthModule,
+    StatsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
