@@ -44,6 +44,9 @@ export class AnkiVocab {
     @Column({ nullable: true, type: 'text', array: true })
     jlpt: string[];
 
+    @Column({ name: 'jlpt_level', nullable: true })
+    jlptLevel: string | null;
+
     @Column({ nullable: true, type: 'text', array: true })
     tags: string[];
 

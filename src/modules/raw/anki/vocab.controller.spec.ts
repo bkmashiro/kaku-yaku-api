@@ -6,6 +6,7 @@ import { AnkiService } from './anki.service';
 describe('VocabController', () => {
   let controller: VocabController;
   const ankiService = {
+    getVocab: jest.fn(),
     searchVocab: jest.fn(),
     getReviewVocab: jest.fn(),
     getDueVocab: jest.fn(),
@@ -39,6 +40,13 @@ describe('VocabController', () => {
 
     await expect(controller.search('猫')).resolves.toEqual([{ noteId: '1', kanji: '猫' }]);
     expect(ankiService.searchVocab).toHaveBeenCalledWith('猫');
+  });
+
+  it('list delegates optional jlpt filter to the service', async () => {
+    ankiService.getVocab.mockResolvedValue([{ noteId: '1', kanji: '猫', jlptLevel: 'N5' }]);
+
+    await expect(controller.list('N5')).resolves.toEqual([{ noteId: '1', kanji: '猫', jlptLevel: 'N5' }]);
+    expect(ankiService.getVocab).toHaveBeenCalledWith('N5');
   });
 
   it('review returns review vocab from the service', async () => {

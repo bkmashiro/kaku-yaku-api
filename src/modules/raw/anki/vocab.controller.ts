@@ -19,6 +19,11 @@ import { ReviewVocabDto } from './dto/review-vocab.dto';
 export class VocabController {
   constructor(private readonly ankiService: AnkiService) {}
 
+  @Get()
+  async list(@Query('jlpt') jlpt?: string) {
+    return this.ankiService.getVocab(jlpt);
+  }
+
   @Get('search')
   async search(@Query('q') query: string) {
     return this.ankiService.searchVocab(query);

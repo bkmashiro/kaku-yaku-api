@@ -23,6 +23,7 @@ describe('AnkiService', () => {
       select: jest.fn().mockReturnThis(),
       cache: jest.fn().mockReturnThis(),
       getCount: jest.fn(),
+      getRawMany: jest.fn(),
     };
 
     return builder;
@@ -67,6 +68,31 @@ describe('AnkiService', () => {
       { keyword: '%猫%' },
     );
     expect(result).toEqual([{ noteId: '1' }]);
+  });
+
+  it('getVocab returns all vocab when no jlpt filter is provided', async () => {
+    const builder = createQueryBuilder();
+    repository.createQueryBuilder.mockReturnValue(builder as never);
+    builder.getMany.mockResolvedValue([{ noteId: '1' }]);
+
+    await expect(service.getVocab()).resolves.toEqual([{ noteId: '1' }]);
+
+    expect(builder.where).not.toHaveBeenCalled();
+    expect(builder.orderBy).toHaveBeenCalledWith('vocab.frequency', 'DESC', 'NULLS LAST');
+  });
+
+  it('getVocab filters by normalized jlpt level', async () => {
+    const builder = createQueryBuilder();
+    repository.createQueryBuilder.mockReturnValue(builder as never);
+    builder.getMany.mockResolvedValue([{ noteId: 'n5-1', jlptLevel: 'N5' }]);
+
+    await expect(service.getVocab('n5')).resolves.toEqual([{ noteId: 'n5-1', jlptLevel: 'N5' }]);
+
+    expect(builder.where).toHaveBeenCalledWith('vocab.jlptLevel = :jlptLevel', { jlptLevel: 'N5' });
+  });
+
+  it('getVocab rejects unsupported jlpt levels', async () => {
+    await expect(service.getVocab('N0')).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('getReviewVocab returns 20 unknown vocab ordered by review count', async () => {
@@ -129,6 +155,24 @@ describe('AnkiService', () => {
       take: 20,
     });
     expect(result).toEqual([{ noteId: 'due-1' }]);
+  });
+
+  it('findByJLPTLevel queries the scalar jlptLevel field', async () => {
+    const builder = createQueryBuilder();
+    repository.createQueryBuilder.mockReturnValue(builder as never);
+    builder.getManyAndCount.mockResolvedValue([[{ noteId: 'jlpt-1', jlptLevel: 'N3' }], 1]);
+
+    await expect(service.findByJLPTLevel('n3', { page: 2, limit: 10 })).resolves.toEqual({
+      data: [{ noteId: 'jlpt-1', jlptLevel: 'N3' }],
+      total: 1,
+      page: 2,
+      limit: 10,
+      totalPages: 1,
+    });
+
+    expect(builder.where).toHaveBeenCalledWith('vocab.jlptLevel = :jlptLevel', { jlptLevel: 'N3' });
+    expect(builder.skip).toHaveBeenCalledWith(10);
+    expect(builder.take).toHaveBeenCalledWith(10);
   });
 
   it('reviewVocab doubles interval and schedules next review when known', async () => {

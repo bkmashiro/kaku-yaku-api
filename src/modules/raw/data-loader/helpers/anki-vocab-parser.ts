@@ -109,6 +109,7 @@ export class AnkiVocabParser {
       // 解析 JLPT 等级信息（第38列标签）
       if (columns[37]) {
         vocab.jlpt = this.extractJLPTLevels(columns[37]);
+        vocab.jlptLevel = vocab.jlpt?.[0] ?? null;
       }
 
       // 关联例句到词汇

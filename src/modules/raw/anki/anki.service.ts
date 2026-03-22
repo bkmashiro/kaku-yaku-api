@@ -59,6 +59,9 @@ export interface ExportedVocabItem {
   next_review: string | null;
 }
 
+const JLPT_LEVELS = ['N5', 'N4', 'N3', 'N2', 'N1'] as const;
+type JlptLevel = (typeof JLPT_LEVELS)[number];
+
 @Injectable()
 export class AnkiService {
   constructor(
@@ -80,6 +83,23 @@ export class AnkiService {
         '(vocab.kanji ILIKE :keyword OR vocab.reading ILIKE :keyword OR vocab.definitionCn ILIKE :keyword OR vocab.definitionTc ILIKE :keyword)',
         { keyword: `%${keyword}%` },
       )
+      .orderBy('vocab.frequency', 'DESC', 'NULLS LAST')
+      .addOrderBy('vocab.reviewCount', 'ASC')
+      .addOrderBy('vocab.kanji', 'ASC')
+      .getMany();
+  }
+
+  async getVocab(jlptLevel?: string): Promise<AnkiVocab[]> {
+    const normalizedJlptLevel = jlptLevel ? this.normalizeJlptLevel(jlptLevel) : null;
+    const queryBuilder = this.ankiVocabRepository
+      .createQueryBuilder('vocab')
+      .leftJoinAndSelect('vocab.sentences', 'sentences');
+
+    if (normalizedJlptLevel) {
+      queryBuilder.where('vocab.jlptLevel = :jlptLevel', { jlptLevel: normalizedJlptLevel });
+    }
+
+    return queryBuilder
       .orderBy('vocab.frequency', 'DESC', 'NULLS LAST')
       .addOrderBy('vocab.reviewCount', 'ASC')
       .addOrderBy('vocab.kanji', 'ASC')
@@ -479,11 +499,12 @@ export class AnkiService {
   async findByJLPTLevel(jlptLevel: string, options: PaginationOptions): Promise<PaginatedResult<AnkiVocab>> {
     const { page, limit } = options;
     const skip = (page - 1) * limit;
+    const normalizedJlptLevel = this.normalizeJlptLevel(jlptLevel);
 
     const [data, total] = await this.ankiVocabRepository
       .createQueryBuilder('vocab')
       .leftJoinAndSelect('vocab.sentences', 'sentences')
-      .where(':jlptLevel = vocab.jlpt', { jlptLevel })
+      .where('vocab.jlptLevel = :jlptLevel', { jlptLevel: normalizedJlptLevel })
       .orderBy('vocab.frequency', 'DESC')
       .addOrderBy('vocab.kanji', 'ASC')
       .skip(skip)
@@ -525,16 +546,15 @@ export class AnkiService {
   async getAllJLPTLevels(): Promise<string[]> {
     const result = await this.ankiVocabRepository
       .createQueryBuilder('vocab')
-      .select('vocab.jlpt')
-      .where('vocab.jlpt IS NOT NULL')
-      .getMany();
+      .select('DISTINCT vocab.jlptLevel', 'jlptLevel')
+      .where('vocab.jlptLevel IS NOT NULL')
+      .getRawMany<{ jlptLevel: string }>();
 
-    // 提取所有JLPT等级并去重
     const allJLPT = result
-      .flatMap(vocab => vocab.jlpt || [])
-      .filter(jlpt => jlpt && jlpt.trim().length > 0);
+      .map((vocab) => vocab.jlptLevel)
+      .filter((jlpt): jlpt is string => typeof jlpt === 'string' && jlpt.trim().length > 0);
 
-    return [...new Set(allJLPT)].sort();
+    return JLPT_LEVELS.filter((level) => new Set(allJLPT).has(level));
   }
 
   /**
@@ -564,8 +584,9 @@ export class AnkiService {
 
     // 添加JLPT等级筛选条件
     if (filters.jlpt && filters.jlpt.length > 0) {
-      const jlptConditions = filters.jlpt.map((_, index) => `:jlpt${index} = ANY(vocab.jlpt)`).join(' OR ');
-      const jlptParams = filters.jlpt.reduce((params, jlpt, index) => {
+      const normalizedLevels = filters.jlpt.map((jlpt) => this.normalizeJlptLevel(jlpt));
+      const jlptConditions = normalizedLevels.map((_, index) => `vocab.jlptLevel = :jlpt${index}`).join(' OR ');
+      const jlptParams = normalizedLevels.reduce<Record<string, string>>((params, jlpt, index) => {
         params[`jlpt${index}`] = jlpt;
         return params;
       }, {});
@@ -595,5 +616,15 @@ export class AnkiService {
       limit,
       totalPages: Math.ceil(total / limit),
     };
+  }
+
+  private normalizeJlptLevel(level: string): JlptLevel {
+    const normalizedLevel = level.trim().toUpperCase() as JlptLevel;
+
+    if (!JLPT_LEVELS.includes(normalizedLevel)) {
+      throw new BadRequestException('Query parameter "jlpt" must be one of: N5, N4, N3, N2, N1');
+    }
+
+    return normalizedLevel;
   }
 }
