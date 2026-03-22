@@ -13,4 +13,14 @@ export class StatsController {
   async getVocabStats() {
     return this.statsService.getVocabStats();
   }
+
+  @Get('learning-progress')
+  async getLearningProgress() {
+    return this.statsService.getLearningProgress();
+  }
+
+  @Get('streak')
+  async getStreak() {
+    return this.statsService.getLearningStreak();
+  }
 }

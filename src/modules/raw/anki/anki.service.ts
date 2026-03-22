@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, In, IsNull, LessThanOrEqual, Repository } from 'typeorm';
 import { AnkiVocab } from '../entities/anki-vocab.entity';
@@ -90,13 +94,17 @@ export class AnkiService {
   }
 
   async getVocab(jlptLevel?: string): Promise<AnkiVocab[]> {
-    const normalizedJlptLevel = jlptLevel ? this.normalizeJlptLevel(jlptLevel) : null;
+    const normalizedJlptLevel = jlptLevel
+      ? this.normalizeJlptLevel(jlptLevel)
+      : null;
     const queryBuilder = this.ankiVocabRepository
       .createQueryBuilder('vocab')
       .leftJoinAndSelect('vocab.sentences', 'sentences');
 
     if (normalizedJlptLevel) {
-      queryBuilder.where('vocab.jlptLevel = :jlptLevel', { jlptLevel: normalizedJlptLevel });
+      queryBuilder.where('vocab.jlptLevel = :jlptLevel', {
+        jlptLevel: normalizedJlptLevel,
+      });
     }
 
     return queryBuilder
@@ -104,6 +112,24 @@ export class AnkiService {
       .addOrderBy('vocab.reviewCount', 'ASC')
       .addOrderBy('vocab.kanji', 'ASC')
       .getMany();
+  }
+
+  async getRandomVocab(jlptLevel?: string, limit = 10): Promise<AnkiVocab[]> {
+    const normalizedJlptLevel = jlptLevel
+      ? this.normalizeJlptLevel(jlptLevel)
+      : null;
+    const normalizedLimit = this.normalizeLimit(limit);
+    const queryBuilder = this.ankiVocabRepository
+      .createQueryBuilder('vocab')
+      .leftJoinAndSelect('vocab.sentences', 'sentences');
+
+    if (normalizedJlptLevel) {
+      queryBuilder.where('vocab.jlptLevel = :jlptLevel', {
+        jlptLevel: normalizedJlptLevel,
+      });
+    }
+
+    return queryBuilder.orderBy('RANDOM()').take(normalizedLimit).getMany();
   }
 
   async getReviewVocab(limit = 20): Promise<AnkiVocab[]> {
@@ -122,10 +148,7 @@ export class AnkiService {
     const now = new Date();
 
     return this.ankiVocabRepository.find({
-      where: [
-        { nextReview: IsNull() },
-        { nextReview: LessThanOrEqual(now) },
-      ],
+      where: [{ nextReview: IsNull() }, { nextReview: LessThanOrEqual(now) }],
       relations: ['sentences'],
       order: {
         nextReview: 'ASC',
@@ -168,7 +191,9 @@ export class AnkiService {
     vocab.isKnown = known;
     vocab.intervalDays = intervalDays;
     vocab.lastReviewed = now;
-    vocab.nextReview = new Date(now.getTime() + intervalDays * 24 * 60 * 60 * 1000);
+    vocab.nextReview = new Date(
+      now.getTime() + intervalDays * 24 * 60 * 60 * 1000,
+    );
 
     return this.ankiVocabRepository.save(vocab);
   }
@@ -178,7 +203,10 @@ export class AnkiService {
     format: 'json' | 'csv',
   ): Promise<VocabImportResult> {
     const errors: VocabImportError[] = [];
-    const parsedItems = format === 'csv' ? this.parseImportCsv(payload) : this.parseImportJson(payload);
+    const parsedItems =
+      format === 'csv'
+        ? this.parseImportCsv(payload)
+        : this.parseImportJson(payload);
     const seenWords = new Set<string>();
     const validItems: VocabImportItem[] = [];
     let skipped = 0;
@@ -246,7 +274,9 @@ export class AnkiService {
     };
   }
 
-  async exportVocab(format: 'json' | 'csv' = 'json'): Promise<ExportedVocabItem[] | string> {
+  async exportVocab(
+    format: 'json' | 'csv' = 'json',
+  ): Promise<ExportedVocabItem[] | string> {
     const vocabList = await this.ankiVocabRepository.find({
       order: {
         addedAt: 'ASC',
@@ -288,12 +318,17 @@ export class AnkiService {
       .createQueryBuilder('vocab')
       .where(
         new Brackets((qb) => {
-          qb.where('vocab.nextReview IS NULL').orWhere('vocab.nextReview <= :now', { now });
+          qb.where('vocab.nextReview IS NULL').orWhere(
+            'vocab.nextReview <= :now',
+            { now },
+          );
         }),
       )
       .getCount();
 
-    const learned = await this.ankiVocabRepository.count({ where: { isKnown: true } });
+    const learned = await this.ankiVocabRepository.count({
+      where: { isKnown: true },
+    });
 
     const reviewed = await this.ankiVocabRepository
       .createQueryBuilder('vocab')
@@ -303,11 +338,14 @@ export class AnkiService {
     return {
       due_today: dueToday,
       learned,
-      retention_rate: reviewed === 0 ? 0 : Number((learned / reviewed).toFixed(4)),
+      retention_rate:
+        reviewed === 0 ? 0 : Number((learned / reviewed).toFixed(4)),
     };
   }
 
-  private parseImportJson(payload: VocabImportItem[] | string): VocabImportItem[] {
+  private parseImportJson(
+    payload: VocabImportItem[] | string,
+  ): VocabImportItem[] {
     if (!Array.isArray(payload)) {
       throw new BadRequestException('JSON payload must be an array');
     }
@@ -315,7 +353,9 @@ export class AnkiService {
     return payload;
   }
 
-  private parseImportCsv(payload: VocabImportItem[] | string): VocabImportItem[] {
+  private parseImportCsv(
+    payload: VocabImportItem[] | string,
+  ): VocabImportItem[] {
     if (typeof payload !== 'string') {
       throw new BadRequestException('CSV payload must be a string');
     }
@@ -330,14 +370,19 @@ export class AnkiService {
     }
 
     const [headerLine, ...rows] = lines;
-    const headers = this.parseCsvLine(headerLine).map((header) => header.toLowerCase());
+    const headers = this.parseCsvLine(headerLine).map((header) =>
+      header.toLowerCase(),
+    );
 
     if (headers.join(',') !== 'word,reading,meaning,tags') {
-      throw new BadRequestException('CSV header must be: word,reading,meaning,tags');
+      throw new BadRequestException(
+        'CSV header must be: word,reading,meaning,tags',
+      );
     }
 
     return rows.map((line) => {
-      const [word = '', reading = '', meaning = '', tags = ''] = this.parseCsvLine(line);
+      const [word = '', reading = '', meaning = '', tags = ''] =
+        this.parseCsvLine(line);
       return {
         word,
         reading,
@@ -349,8 +394,10 @@ export class AnkiService {
 
   private normalizeImportItem(item: VocabImportItem): VocabImportItem {
     const word = typeof item?.word === 'string' ? item.word.trim() : '';
-    const reading = typeof item?.reading === 'string' ? item.reading.trim() : null;
-    const meaning = typeof item?.meaning === 'string' ? item.meaning.trim() : null;
+    const reading =
+      typeof item?.reading === 'string' ? item.reading.trim() : null;
+    const meaning =
+      typeof item?.meaning === 'string' ? item.meaning.trim() : null;
     const tags = Array.isArray(item?.tags)
       ? item.tags
           .map((tag) => (typeof tag === 'string' ? tag.trim() : ''))
@@ -467,7 +514,10 @@ export class AnkiService {
    * @param options 分页选项
    * @returns 分页的词汇列表
    */
-  async findByPos(pos: string, options: PaginationOptions): Promise<PaginatedResult<AnkiVocab>> {
+  async findByPos(
+    pos: string,
+    options: PaginationOptions,
+  ): Promise<PaginatedResult<AnkiVocab>> {
     const { page, limit } = options;
     const skip = (page - 1) * limit;
 
@@ -496,7 +546,10 @@ export class AnkiService {
    * @param options 分页选项
    * @returns 分页的词汇列表
    */
-  async findByJLPTLevel(jlptLevel: string, options: PaginationOptions): Promise<PaginatedResult<AnkiVocab>> {
+  async findByJLPTLevel(
+    jlptLevel: string,
+    options: PaginationOptions,
+  ): Promise<PaginatedResult<AnkiVocab>> {
     const { page, limit } = options;
     const skip = (page - 1) * limit;
     const normalizedJlptLevel = this.normalizeJlptLevel(jlptLevel);
@@ -533,8 +586,8 @@ export class AnkiService {
       .getMany();
 
     const allPos = result
-      .flatMap(vocab => vocab.pos || [])
-      .filter(pos => pos && pos.trim().length > 0);
+      .flatMap((vocab) => vocab.pos || [])
+      .filter((pos) => pos && pos.trim().length > 0);
 
     return [...new Set(allPos)].sort();
   }
@@ -552,7 +605,10 @@ export class AnkiService {
 
     const allJLPT = result
       .map((vocab) => vocab.jlptLevel)
-      .filter((jlpt): jlpt is string => typeof jlpt === 'string' && jlpt.trim().length > 0);
+      .filter(
+        (jlpt): jlpt is string =>
+          typeof jlpt === 'string' && jlpt.trim().length > 0,
+      );
 
     return JLPT_LEVELS.filter((level) => new Set(allJLPT).has(level));
   }
@@ -563,7 +619,10 @@ export class AnkiService {
    * @param options 分页选项
    * @returns 分页的词汇列表
    */
-  async findByFilters(filters: FilterOptions, options: PaginationOptions): Promise<PaginatedResult<AnkiVocab>> {
+  async findByFilters(
+    filters: FilterOptions,
+    options: PaginationOptions,
+  ): Promise<PaginatedResult<AnkiVocab>> {
     const { page, limit } = options;
     const skip = (page - 1) * limit;
 
@@ -573,24 +632,33 @@ export class AnkiService {
 
     // 添加词性筛选条件
     if (filters.pos && filters.pos.length > 0) {
-      const posConditions = filters.pos.map((_, index) => `:pos${index} = ANY(vocab.pos)`).join(' OR ');
+      const posConditions = filters.pos
+        .map((_, index) => `:pos${index} = ANY(vocab.pos)`)
+        .join(' OR ');
       const posParams = filters.pos.reduce((params, pos, index) => {
         params[`pos${index}`] = pos;
         return params;
       }, {});
-      
+
       queryBuilder.andWhere(`(${posConditions})`, posParams);
     }
 
     // 添加JLPT等级筛选条件
     if (filters.jlpt && filters.jlpt.length > 0) {
-      const normalizedLevels = filters.jlpt.map((jlpt) => this.normalizeJlptLevel(jlpt));
-      const jlptConditions = normalizedLevels.map((_, index) => `vocab.jlptLevel = :jlpt${index}`).join(' OR ');
-      const jlptParams = normalizedLevels.reduce<Record<string, string>>((params, jlpt, index) => {
-        params[`jlpt${index}`] = jlpt;
-        return params;
-      }, {});
-      
+      const normalizedLevels = filters.jlpt.map((jlpt) =>
+        this.normalizeJlptLevel(jlpt),
+      );
+      const jlptConditions = normalizedLevels
+        .map((_, index) => `vocab.jlptLevel = :jlpt${index}`)
+        .join(' OR ');
+      const jlptParams = normalizedLevels.reduce<Record<string, string>>(
+        (params, jlpt, index) => {
+          params[`jlpt${index}`] = jlpt;
+          return params;
+        },
+        {},
+      );
+
       queryBuilder.andWhere(`(${jlptConditions})`, jlptParams);
     }
 
@@ -598,7 +666,7 @@ export class AnkiService {
     if (filters.keyword && filters.keyword.trim().length > 0) {
       queryBuilder.andWhere(
         '(vocab.kanji ILIKE :keyword OR vocab.reading ILIKE :keyword OR vocab.definitionCn ILIKE :keyword OR vocab.definitionTc ILIKE :keyword)',
-        { keyword: `%${filters.keyword.trim()}%` }
+        { keyword: `%${filters.keyword.trim()}%` },
       );
     }
 
@@ -622,9 +690,21 @@ export class AnkiService {
     const normalizedLevel = level.trim().toUpperCase() as JlptLevel;
 
     if (!JLPT_LEVELS.includes(normalizedLevel)) {
-      throw new BadRequestException('Query parameter "jlpt" must be one of: N5, N4, N3, N2, N1');
+      throw new BadRequestException(
+        'Query parameter "jlpt" must be one of: N5, N4, N3, N2, N1',
+      );
     }
 
     return normalizedLevel;
+  }
+
+  private normalizeLimit(limit: number): number {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+      throw new BadRequestException(
+        'Query parameter "limit" must be an integer between 1 and 100',
+      );
+    }
+
+    return limit;
   }
 }

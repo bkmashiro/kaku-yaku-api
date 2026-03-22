@@ -29,6 +29,12 @@ export class VocabController {
     return this.ankiService.searchVocab(query);
   }
 
+  @Get('random')
+  async random(@Query('jlpt') jlpt?: string, @Query('limit') limit?: string) {
+    const parsedLimit = limit ? Number.parseInt(limit, 10) : 10;
+    return this.ankiService.getRandomVocab(jlpt, parsedLimit);
+  }
+
   @Get('review')
   async review() {
     return this.ankiService.getReviewVocab();
@@ -49,7 +55,8 @@ export class VocabController {
     @Body() body: unknown,
     @Headers('content-type') contentType?: string,
   ) {
-    const format = typeof body === 'string' || contentType?.includes('csv') ? 'csv' : 'json';
+    const format =
+      typeof body === 'string' || contentType?.includes('csv') ? 'csv' : 'json';
     return this.ankiService.importVocab(body as never, format);
   }
 
@@ -68,7 +75,10 @@ export class VocabController {
   }
 
   @Post(':id/review')
-  async reviewResult(@Param('id') noteId: string, @Body() body: ReviewVocabDto) {
+  async reviewResult(
+    @Param('id') noteId: string,
+    @Body() body: ReviewVocabDto,
+  ) {
     return this.ankiService.reviewVocab(noteId, body.known);
   }
 

@@ -52,7 +52,9 @@ describe('AnkiService', () => {
   });
 
   it('searchVocab rejects empty queries', async () => {
-    await expect(service.searchVocab('   ')).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.searchVocab('   ')).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
   });
 
   it('searchVocab queries vocab fields and returns matches', async () => {
@@ -78,7 +80,11 @@ describe('AnkiService', () => {
     await expect(service.getVocab()).resolves.toEqual([{ noteId: '1' }]);
 
     expect(builder.where).not.toHaveBeenCalled();
-    expect(builder.orderBy).toHaveBeenCalledWith('vocab.frequency', 'DESC', 'NULLS LAST');
+    expect(builder.orderBy).toHaveBeenCalledWith(
+      'vocab.frequency',
+      'DESC',
+      'NULLS LAST',
+    );
   });
 
   it('getVocab filters by normalized jlpt level', async () => {
@@ -86,13 +92,49 @@ describe('AnkiService', () => {
     repository.createQueryBuilder.mockReturnValue(builder as never);
     builder.getMany.mockResolvedValue([{ noteId: 'n5-1', jlptLevel: 'N5' }]);
 
-    await expect(service.getVocab('n5')).resolves.toEqual([{ noteId: 'n5-1', jlptLevel: 'N5' }]);
+    await expect(service.getVocab('n5')).resolves.toEqual([
+      { noteId: 'n5-1', jlptLevel: 'N5' },
+    ]);
 
-    expect(builder.where).toHaveBeenCalledWith('vocab.jlptLevel = :jlptLevel', { jlptLevel: 'N5' });
+    expect(builder.where).toHaveBeenCalledWith('vocab.jlptLevel = :jlptLevel', {
+      jlptLevel: 'N5',
+    });
   });
 
   it('getVocab rejects unsupported jlpt levels', async () => {
-    await expect(service.getVocab('N0')).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.getVocab('N0')).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+  });
+
+  it('getRandomVocab filters by normalized jlpt level and applies limit', async () => {
+    const builder = createQueryBuilder();
+    repository.createQueryBuilder.mockReturnValue(builder as never);
+    builder.getMany.mockResolvedValue([
+      { noteId: 'random-1', jlptLevel: 'N4' },
+    ]);
+
+    await expect(service.getRandomVocab('n4', 10)).resolves.toEqual([
+      { noteId: 'random-1', jlptLevel: 'N4' },
+    ]);
+
+    expect(builder.where).toHaveBeenCalledWith('vocab.jlptLevel = :jlptLevel', {
+      jlptLevel: 'N4',
+    });
+    expect(builder.orderBy).toHaveBeenCalledWith('RANDOM()');
+    expect(builder.take).toHaveBeenCalledWith(10);
+  });
+
+  it('getRandomVocab rejects invalid limits', async () => {
+    await expect(service.getRandomVocab(undefined, 0)).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    await expect(service.getRandomVocab(undefined, 101)).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    await expect(
+      service.getRandomVocab(undefined, Number.NaN),
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('getReviewVocab returns 20 unknown vocab ordered by review count', async () => {
@@ -114,7 +156,10 @@ describe('AnkiService', () => {
 
   it('markReviewed increments reviewCount and saves', async () => {
     jest.useFakeTimers().setSystemTime(new Date('2026-03-21T10:00:00.000Z'));
-    repository.findOne.mockResolvedValue({ noteId: '3', reviewCount: 1 } as AnkiVocab);
+    repository.findOne.mockResolvedValue({
+      noteId: '3',
+      reviewCount: 1,
+    } as AnkiVocab);
     repository.save.mockResolvedValue({
       noteId: '3',
       reviewCount: 2,
@@ -136,7 +181,9 @@ describe('AnkiService', () => {
   it('markReviewed throws when vocab does not exist', async () => {
     repository.findOne.mockResolvedValue(null);
 
-    await expect(service.markReviewed('missing')).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.markReviewed('missing')).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
   });
 
   it('getDueVocab returns vocab with empty or overdue nextReview', async () => {
@@ -160,9 +207,14 @@ describe('AnkiService', () => {
   it('findByJLPTLevel queries the scalar jlptLevel field', async () => {
     const builder = createQueryBuilder();
     repository.createQueryBuilder.mockReturnValue(builder as never);
-    builder.getManyAndCount.mockResolvedValue([[{ noteId: 'jlpt-1', jlptLevel: 'N3' }], 1]);
+    builder.getManyAndCount.mockResolvedValue([
+      [{ noteId: 'jlpt-1', jlptLevel: 'N3' }],
+      1,
+    ]);
 
-    await expect(service.findByJLPTLevel('n3', { page: 2, limit: 10 })).resolves.toEqual({
+    await expect(
+      service.findByJLPTLevel('n3', { page: 2, limit: 10 }),
+    ).resolves.toEqual({
       data: [{ noteId: 'jlpt-1', jlptLevel: 'N3' }],
       total: 1,
       page: 2,
@@ -170,7 +222,9 @@ describe('AnkiService', () => {
       totalPages: 1,
     });
 
-    expect(builder.where).toHaveBeenCalledWith('vocab.jlptLevel = :jlptLevel', { jlptLevel: 'N3' });
+    expect(builder.where).toHaveBeenCalledWith('vocab.jlptLevel = :jlptLevel', {
+      jlptLevel: 'N3',
+    });
     expect(builder.skip).toHaveBeenCalledWith(10);
     expect(builder.take).toHaveBeenCalledWith(10);
   });
@@ -232,22 +286,35 @@ describe('AnkiService', () => {
   });
 
   it('reviewVocab rejects non-boolean known values', async () => {
-    await expect(service.reviewVocab('bad-1', undefined as never)).rejects.toBeInstanceOf(BadRequestException);
+    await expect(
+      service.reviewVocab('bad-1', undefined as never),
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('reviewVocab throws when vocab does not exist', async () => {
     repository.findOne.mockResolvedValue(null);
 
-    await expect(service.reviewVocab('missing', true)).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.reviewVocab('missing', true)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
   });
 
   it('markKnown sets isKnown to true', async () => {
-    repository.findOne.mockResolvedValue({ noteId: '4', isKnown: false } as AnkiVocab);
-    repository.save.mockResolvedValue({ noteId: '4', isKnown: true } as AnkiVocab);
+    repository.findOne.mockResolvedValue({
+      noteId: '4',
+      isKnown: false,
+    } as AnkiVocab);
+    repository.save.mockResolvedValue({
+      noteId: '4',
+      isKnown: true,
+    } as AnkiVocab);
 
     const result = await service.markKnown('4');
 
-    expect(repository.save).toHaveBeenCalledWith({ noteId: '4', isKnown: true });
+    expect(repository.save).toHaveBeenCalledWith({
+      noteId: '4',
+      isKnown: true,
+    });
     expect(result.isKnown).toBe(true);
   });
 
@@ -262,7 +329,9 @@ describe('AnkiService', () => {
   it('deleteVocab throws when vocab does not exist', async () => {
     repository.delete.mockResolvedValue({ affected: 0 } as DeleteResult);
 
-    await expect(service.deleteVocab('missing')).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.deleteVocab('missing')).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
   });
 
   it('getSrsStats returns due count, learned count, and retention rate', async () => {
@@ -292,7 +361,12 @@ describe('AnkiService', () => {
     await expect(
       service.importVocab(
         [
-          { word: '猫', reading: 'ねこ', meaning: 'cat', tags: ['animal', ' pet '] },
+          {
+            word: '猫',
+            reading: 'ねこ',
+            meaning: 'cat',
+            tags: ['animal', ' pet '],
+          },
           { word: '猫', reading: 'ねこ', meaning: 'duplicate' },
           { word: '犬', reading: 'いぬ', meaning: 'dog' },
           { word: '  ', reading: 'blank', meaning: 'invalid' },

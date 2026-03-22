@@ -11,6 +11,16 @@ export interface VocabStats {
   recentWords: { word: string; reading: string; added_at: Date }[];
 }
 
+export interface LearningProgressStats {
+  total: number;
+  learned: number;
+}
+
+export type LearningProgressResponse = Record<
+  'N5' | 'N4' | 'N3' | 'N2' | 'N1',
+  LearningProgressStats
+>;
+
 @Injectable()
 export class StatsService {
   constructor(
@@ -62,5 +72,86 @@ export class StatsService {
         added_at: v.addedAt,
       })),
     };
+  }
+
+  async getLearningProgress(): Promise<LearningProgressResponse> {
+    const rows = await this.ankiVocabRepository
+      .createQueryBuilder('v')
+      .select('v.jlptLevel', 'jlptLevel')
+      .addSelect('COUNT(*)', 'total')
+      .addSelect('SUM(CASE WHEN v.isKnown = true THEN 1 ELSE 0 END)', 'learned')
+      .where('v.jlptLevel IS NOT NULL')
+      .groupBy('v.jlptLevel')
+      .getRawMany<{
+        jlptLevel: 'N5' | 'N4' | 'N3' | 'N2' | 'N1';
+        total: string;
+        learned: string;
+      }>();
+
+    const progress: LearningProgressResponse = {
+      N5: { total: 0, learned: 0 },
+      N4: { total: 0, learned: 0 },
+      N3: { total: 0, learned: 0 },
+      N2: { total: 0, learned: 0 },
+      N1: { total: 0, learned: 0 },
+    };
+
+    rows.forEach((row) => {
+      progress[row.jlptLevel] = {
+        total: Number(row.total),
+        learned: Number(row.learned),
+      };
+    });
+
+    return progress;
+  }
+
+  async getLearningStreak(): Promise<{ streak: number }> {
+    const rows = await this.ankiVocabRepository
+      .createQueryBuilder('v')
+      .select("DISTINCT DATE(v.lastReviewed AT TIME ZONE 'UTC')", 'reviewDate')
+      .where('v.lastReviewed IS NOT NULL')
+      .orderBy('reviewDate', 'DESC')
+      .getRawMany<{ reviewDate: string }>();
+
+    const streak = this.calculateStreak(rows.map((row) => row.reviewDate));
+    return { streak };
+  }
+
+  private calculateStreak(reviewDates: string[]): number {
+    if (reviewDates.length === 0) {
+      return 0;
+    }
+
+    let streak = 0;
+    let expectedDate = this.toUtcDateOnly(new Date());
+
+    if (reviewDates[0] !== this.toDateKey(expectedDate)) {
+      expectedDate = new Date(expectedDate.getTime() - 24 * 60 * 60 * 1000);
+      if (reviewDates[0] !== this.toDateKey(expectedDate)) {
+        return 0;
+      }
+    }
+
+    for (const reviewDate of reviewDates) {
+      if (reviewDate !== this.toDateKey(expectedDate)) {
+        break;
+      }
+
+      streak += 1;
+      expectedDate = new Date(expectedDate.getTime() - 24 * 60 * 60 * 1000);
+    }
+
+    return streak;
+  }
+
+  private toUtcDateOnly(value: Date): Date {
+    return new Date(
+      Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()),
+    );
+  }
+
+  private toDateKey(value: Date): string {
+    return value.toISOString().slice(0, 10);
   }
 }

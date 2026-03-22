@@ -8,6 +8,7 @@ describe('VocabController', () => {
   const ankiService = {
     getVocab: jest.fn(),
     searchVocab: jest.fn(),
+    getRandomVocab: jest.fn(),
     getReviewVocab: jest.fn(),
     getDueVocab: jest.fn(),
     getSrsStats: jest.fn(),
@@ -38,28 +39,64 @@ describe('VocabController', () => {
   it('search delegates query to the service', async () => {
     ankiService.searchVocab.mockResolvedValue([{ noteId: '1', kanji: '猫' }]);
 
-    await expect(controller.search('猫')).resolves.toEqual([{ noteId: '1', kanji: '猫' }]);
+    await expect(controller.search('猫')).resolves.toEqual([
+      { noteId: '1', kanji: '猫' },
+    ]);
     expect(ankiService.searchVocab).toHaveBeenCalledWith('猫');
   });
 
   it('list delegates optional jlpt filter to the service', async () => {
-    ankiService.getVocab.mockResolvedValue([{ noteId: '1', kanji: '猫', jlptLevel: 'N5' }]);
+    ankiService.getVocab.mockResolvedValue([
+      { noteId: '1', kanji: '猫', jlptLevel: 'N5' },
+    ]);
 
-    await expect(controller.list('N5')).resolves.toEqual([{ noteId: '1', kanji: '猫', jlptLevel: 'N5' }]);
+    await expect(controller.list('N5')).resolves.toEqual([
+      { noteId: '1', kanji: '猫', jlptLevel: 'N5' },
+    ]);
     expect(ankiService.getVocab).toHaveBeenCalledWith('N5');
   });
 
-  it('review returns review vocab from the service', async () => {
-    ankiService.getReviewVocab.mockResolvedValue([{ noteId: '2', kanji: '犬' }]);
+  it('random delegates jlpt and parsed limit to the service', async () => {
+    ankiService.getRandomVocab.mockResolvedValue([
+      { noteId: 'random-1', kanji: '猫', jlptLevel: 'N4' },
+    ]);
 
-    await expect(controller.review()).resolves.toEqual([{ noteId: '2', kanji: '犬' }]);
+    await expect(controller.random('N4', '10')).resolves.toEqual([
+      { noteId: 'random-1', kanji: '猫', jlptLevel: 'N4' },
+    ]);
+    expect(ankiService.getRandomVocab).toHaveBeenCalledWith('N4', 10);
+  });
+
+  it('random uses the default limit when absent', async () => {
+    ankiService.getRandomVocab.mockResolvedValue([
+      { noteId: 'random-2', kanji: '犬' },
+    ]);
+
+    await expect(controller.random(undefined, undefined)).resolves.toEqual([
+      { noteId: 'random-2', kanji: '犬' },
+    ]);
+    expect(ankiService.getRandomVocab).toHaveBeenCalledWith(undefined, 10);
+  });
+
+  it('review returns review vocab from the service', async () => {
+    ankiService.getReviewVocab.mockResolvedValue([
+      { noteId: '2', kanji: '犬' },
+    ]);
+
+    await expect(controller.review()).resolves.toEqual([
+      { noteId: '2', kanji: '犬' },
+    ]);
     expect(ankiService.getReviewVocab).toHaveBeenCalledTimes(1);
   });
 
   it('due returns due vocab from the service', async () => {
-    ankiService.getDueVocab.mockResolvedValue([{ noteId: 'due-1', kanji: '鳥' }]);
+    ankiService.getDueVocab.mockResolvedValue([
+      { noteId: 'due-1', kanji: '鳥' },
+    ]);
 
-    await expect(controller.due()).resolves.toEqual([{ noteId: 'due-1', kanji: '鳥' }]);
+    await expect(controller.due()).resolves.toEqual([
+      { noteId: 'due-1', kanji: '鳥' },
+    ]);
     expect(ankiService.getDueVocab).toHaveBeenCalledTimes(1);
   });
 
@@ -79,14 +116,23 @@ describe('VocabController', () => {
   });
 
   it('importVocab delegates payload format based on content type', async () => {
-    ankiService.importVocab.mockResolvedValue({ imported: 1, skipped: 0, errors: [] });
-
-    await expect(controller.importVocab('word,reading,meaning,tags', 'text/csv')).resolves.toEqual({
+    ankiService.importVocab.mockResolvedValue({
       imported: 1,
       skipped: 0,
       errors: [],
     });
-    expect(ankiService.importVocab).toHaveBeenCalledWith('word,reading,meaning,tags', 'csv');
+
+    await expect(
+      controller.importVocab('word,reading,meaning,tags', 'text/csv'),
+    ).resolves.toEqual({
+      imported: 1,
+      skipped: 0,
+      errors: [],
+    });
+    expect(ankiService.importVocab).toHaveBeenCalledWith(
+      'word,reading,meaning,tags',
+      'csv',
+    );
   });
 
   it('exportVocab sets CSV header and delegates format', async () => {
@@ -95,15 +141,25 @@ describe('VocabController', () => {
     } as unknown as Response;
     ankiService.exportVocab.mockResolvedValue('csv-content');
 
-    await expect(controller.exportVocab('csv', response)).resolves.toBe('csv-content');
-    expect(response.setHeader).toHaveBeenCalledWith('Content-Type', 'text/csv; charset=utf-8');
+    await expect(controller.exportVocab('csv', response)).resolves.toBe(
+      'csv-content',
+    );
+    expect(response.setHeader).toHaveBeenCalledWith(
+      'Content-Type',
+      'text/csv; charset=utf-8',
+    );
     expect(ankiService.exportVocab).toHaveBeenCalledWith('csv');
   });
 
   it('reviewResult delegates note id and known flag', async () => {
-    ankiService.reviewVocab.mockResolvedValue({ noteId: 'review-1', intervalDays: 2 });
+    ankiService.reviewVocab.mockResolvedValue({
+      noteId: 'review-1',
+      intervalDays: 2,
+    });
 
-    await expect(controller.reviewResult('review-1', { known: true })).resolves.toEqual({
+    await expect(
+      controller.reviewResult('review-1', { known: true }),
+    ).resolves.toEqual({
       noteId: 'review-1',
       intervalDays: 2,
     });
@@ -113,14 +169,20 @@ describe('VocabController', () => {
   it('markReviewed delegates note id', async () => {
     ankiService.markReviewed.mockResolvedValue({ noteId: '3', reviewCount: 2 });
 
-    await expect(controller.markReviewed('3')).resolves.toEqual({ noteId: '3', reviewCount: 2 });
+    await expect(controller.markReviewed('3')).resolves.toEqual({
+      noteId: '3',
+      reviewCount: 2,
+    });
     expect(ankiService.markReviewed).toHaveBeenCalledWith('3');
   });
 
   it('markKnown delegates note id', async () => {
     ankiService.markKnown.mockResolvedValue({ noteId: '4', isKnown: true });
 
-    await expect(controller.markKnown('4')).resolves.toEqual({ noteId: '4', isKnown: true });
+    await expect(controller.markKnown('4')).resolves.toEqual({
+      noteId: '4',
+      isKnown: true,
+    });
     expect(ankiService.markKnown).toHaveBeenCalledWith('4');
   });
 
