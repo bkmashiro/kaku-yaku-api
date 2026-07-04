@@ -19,6 +19,6 @@ async function bootstrap() {
   app.use('/api/vocab/import', express.text({ type: ['text/csv', 'text/plain'] }));
   app.setGlobalPrefix('api');
 
-  await app.listen(3001);
+  await app.listen(process.env.PORT ? parseInt(process.env.PORT) : 3002);
 }
 bootstrap();
